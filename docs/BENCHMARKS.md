@@ -2516,6 +2516,9 @@ opt-in, existing serving byte-identical (the 22 pre-existing api_server cases
 stay green). Reproduce:
 `cmake --build build-cpu --target test_prometheus_metrics test_openai_api_server &&
 ./build-cpu/tests/test_prometheus_metrics && ./build-cpu/tests/test_openai_api_server`.
+The live metrics spec also preserves the accepted 2026-07-24 records-only
+spike provenance; that historical checkpoint measured no benchmark and does
+not change this disposition.
 
 **ROAD-V1-C8 `/tokenizer_info` + `/abort_requests` (2026-07-28,
 `CLAIM-C8-SERVE-ENDPOINTS`, NOT pushed).** Disposition: **NOT APPLICABLE (no

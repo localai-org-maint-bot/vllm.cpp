@@ -125,3 +125,26 @@ the same into the AsyncLLM production-serving loop is the remaining follow-on.
   until their config exists, matching vLLM exactly (honest, not a shortcut).
 - Risk: live-engine value wiring (W4) must not perturb the hot path — it is an
   opt-in read of already-computed stats, so inert by construction.
+
+## Spike provenance
+
+The accepted 2026-07-24 records-only spike at vLLM pin `e24d1b24` established
+the implementation plan that preceded W1-W3 above. It inventoried the complete
+host-only path from `vllm/v1/metrics/stats.py:171-369` through
+`vllm/v1/metrics/loggers.py:406-1210,1274-1342`,
+`vllm/v1/metrics/prometheus.py:17-78`, and the redirect-free text endpoint in
+`vllm/entrypoints/serve/instrumentator/metrics.py:52-82`, together with the
+endpoint and reader contracts in
+`tests/entrypoints/serve/instrumentator/test_metrics.py:74-510` and
+`tests/v1/metrics/test_metrics_reader.py:21-137`.
+
+That spike counted 40 pinned base families and required exact metric names,
+types, fixed `model_name,engine` labels, HELP text, and histogram buckets. It
+selected a dependency-free typed C++ registry with snapshot-under-lock /
+serialize-after-unlock, deliberately replacing Python's multiprocess
+filesystem aggregation with an equivalent in-process aggregate. Its original
+work split was W1 stats DTOs, W2 registry/serializer, W3 lifecycle wiring, W4
+redirect-free HTTP exposition, W5 output-invariance plus the binding vLLM A/B,
+and W6 optional feature-gated families. The current breakdown above supersedes
+those pre-implementation states while preserving the spike's scope and design
+decisions.

@@ -1524,7 +1524,9 @@ card plus a newer-card/CPU cross-check; nothing is runtime-verified yet.
   matching vLLM's own mapping. A behavioural CPU gate drives the reference engine
   for several steps and checks the values track the run. The remaining work is
   the async production-serving path wiring and the config-gated metric families
-  (speculative decoding, KV connector, multimodal cache, LoRA).
+  (speculative decoding, KV connector, multimodal cache, LoRA). The live spec
+  retains the accepted 2026-07-24 spike inventory and design provenance behind
+  this implementation.
 - **SGLang RadixAttention behavior parity** — scoped 2026-07-27, W1+W2 flags now
   IMPLEMENTED (CPU-gated). SGLang's radix-tree prefix cache is functionally
   equivalent to our block-hash APC (both do automatic longest-prefix KV sharing
