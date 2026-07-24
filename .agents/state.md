@@ -30297,6 +30297,27 @@ restriction `causal_conv1d_spec_update: conv_state must be f32, or bf16 on CUDA`
 Records: `docs/STATUS.md` (the `SPEC-MTP-GGUF` paragraph now states the measured
 run and both caveats instead of "outstanding"), `docs/BENCHMARKS.md` (the
 `QUANT-GGUF-NVFP4` entry's downstream-unblock paragraph), this log. No code change.
+
+---
+
+## 2026-07-24 — `SERVE-E2E-NIGHTLY` spike: fail-closed CPU CI and scheduled-GB10 split (`CLAIM-SERVE-E2E-NIGHTLY-SPIKE-1`)
+
+**SPIKE ONLY, fully CPU-verifiable.** The missing leaf spec
+`.agents/specs/server-e2e-nightly.md` inventories pinned vLLM `e24d1b24`'s
+entrypoint and V1-e2e CI topology, the existing local OpenAI conformance and
+paged-engine targets, and the orchestration gap: checkpoint-gated tests can
+currently exit green after SKIP, and no versioned manifest proves which release
+rows ran. The selected design is an explicit manifest, isolated subprocess
+runner, deterministic JSON summary, CPU presubmit shard, then a separately
+claimed scheduled GB10 workflow. Required SKIP, timeout, crash, missing
+executable/checkpoint, duplicate ID, and wrong checkpoint identity all fail.
+Correctness and performance remain separate; this row never republishes partial
+online-gate numbers. Work is split `N1` manifest, `N2` runner/summarizer, `N3`
+CPU presubmit, `N4` scheduled DGX, `N5` release-totality reconciliation.
+`SERVE-E2E-NIGHTLY` moves `INVENTORIED` to `SPIKE`; no source, test, workflow,
+model, checkpoint, GPU, or benchmark changed or ran. Benchmark disposition:
+`NOT APPLICABLE`. Next claim may take CPU-only `N1`+`N2`; `N4` must be owned by
+an agent able to execute and verify the scheduled runner on GB10.
 - **2026-07-28 (Gemma-4 G1b — TEXT PATH STRICT 32/32, `CLAIM-GEMMA4-G1B`)** — The
   runner heterogeneous per-layer KV head_dim change that unblocks the strict gate.
   **The named deliverable: `KVCacheConfig` gains an OPTIONAL `per_layer_attn_specs`

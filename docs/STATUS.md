@@ -1854,6 +1854,14 @@ card plus a newer-card/CPU cross-check; nothing is runtime-verified yet.
 
 ## Verification and parity
 
+The scheduled server and real-model regression suite is currently **SPIKED,
+not implemented** (`SERVE-E2E-NIGHTLY`). The accepted design separates
+GPU-free pull-request conformance from a fail-closed GB10 nightly manifest:
+missing checkpoints and required skips will be failures, not green coverage.
+No scheduled-nightly support claim is made yet; implementation starts with the
+CPU-only manifest and runner leaves in
+[the spike](../.agents/specs/server-e2e-nightly.md).
+
 Every model is gated token-for-token against the vLLM 0.25.0 oracle (the
 gate-time pin, re-validated bit-identical on the current 0.26.0.dev0 pin) on the
 same workload, and every change that could affect correctness or performance is

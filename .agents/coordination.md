@@ -913,6 +913,7 @@ record surfaces (`.agents/specs/dflash-spec-decode.md` §0/§6, roadmap ROAD-V1-
 checklist, `.agents/model-matrix.md` the DFlash spec row + checklist, ledger, state, this
 note, README, `docs/BENCHMARKS.md`). Did NOT touch any model/kernel/runtime source ⇒ SACRED
 gates byte-identical by construction (not re-run).
+| `CLAIM-SERVE-E2E-NIGHTLY-SPIKE-1` | `SERVE-E2E-NIGHTLY` (spike only) | Codex (GPT-5) | isolated worktree `/home/mudler/_git/vllm.cpp/.claude/worktrees/codex-serve-e2e-nightly-spike`, branch `codex/serve-e2e-nightly-spike`, base `upstream/main` `9721e848` | Owns exactly NEW `.agents/specs/server-e2e-nightly.md`; the `SERVE-E2E-NIGHTLY` row in `.agents/engine-matrix.md`; its snapshot cells in `.agents/roadmap_v1.md`, `README.md`, and `docs/BENCHMARKS.md`; this claim row; and one append-only `.agents/state.md` entry. **SPIKE/RECORDS ONLY:** inventories pinned-vLLM tests and CI, defines the CPU-CI vs scheduled-DGX split, hardware/data/dependency gates, and row-sized implementation leaves. Owns no source, test, workflow, model, benchmark, or GPU file; performs no GPU execution and makes no support/performance claim. | `SPIKE` | 2026-07-24 |
 
 **DFlash D0-redo + D1 note (2026-07-26, `CLAIM-DFLASH-D0D1`, DONE, NOT pushed — FULL
 SHA reported to caller).** UNBLOCKS + advances `SPEC-DFLASH` (rows `SPEC-DFLASH`;

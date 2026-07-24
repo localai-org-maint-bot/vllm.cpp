@@ -2984,6 +2984,16 @@ prompt-position-logits source is pending). Closing commit `7a3f04b2`. Repro:
 `cmake -S . -B build-cpu -DVLLM_CPP_CUDA=OFF && cmake --build build-cpu -j &&
 ctest -R "test_openai_logprobs|test_openai_serving"`.
 
+**Scheduled e2e nightly (`SERVE-E2E-NIGHTLY`): NOT APPLICABLE.** The
+2026-07-24 [spike](../.agents/specs/server-e2e-nightly.md) is records and design
+only. It inventories vLLM's entrypoint/V1-e2e CI split and defines CPU manifest,
+fail-closed runner, presubmit, and later scheduled-GB10 leaves. No workflow was
+implemented, no checkpoint or GPU was run, and no throughput/latency number is
+claimed. The first reproduction gate is CPU-only: manifest validation plus
+runner mutation tests proving required SKIP, timeout, crash, missing target,
+and missing checkpoint all fail. Binding performance remains exclusively with
+the existing online-serving/backend gate harnesses.
+
 **Roadmap note (2026-07-20):** the first additive-model bring-up (Qwen3 dense on
 `Qwen3-0.6B`, [spike](../.agents/specs/first-additive-model-qwen3-dense.md)) is a
 CORRECTNESS deliverable - its gate is greedy vs the vLLM 0.25.0 oracle, not a perf
