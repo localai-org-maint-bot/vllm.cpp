@@ -34505,3 +34505,16 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 - ROAD-V1-A6 per-area lifecycle-summary integrity
+
+- Claim `CLAIM-RECORD-AREA-SUMMARY`, branch
+  `codex/road-v1-a6-area-summary-integrity`, base `upstream/main` `1448e981`.
+- Root cause: `check_engine_summary` parsed only the `**Total**` row, so named
+  area snapshots could drift while the 131-row total remained correct.
+- Added section-aware validation plus a RED-first mutation. Enforcement exposed
+  and reconciled stale Engine, KV, and Serving area cells; no underlying row
+  lifecycle changed.
+- CPU-only gate: `test_agent_record.py` 14/14 and the live agent-record checker
+  pass. Full repository checker evidence is recorded in the PR; no compiler is
+  installed on this host, and none is required for the owned Python/docs scope.

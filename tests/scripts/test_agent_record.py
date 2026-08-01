@@ -209,6 +209,20 @@ class AgentRecordMutationTests(unittest.TestCase):
             r"MODEL-FACTORY-registry table lacks semantic owner column",
         )
 
+    def test_engine_summary_rejects_named_area_drift(self) -> None:
+        lines = agent_record.ENGINE_MATRIX.read_text(encoding="utf-8").splitlines()
+        original = "| Engine and scheduling | 27 | 3 | 3 | 1 | 0 | 12 | 2 | 2 | 4 |"
+        mutated = "| Engine and scheduling | 27 | 3 | 3 | 1 | 0 | 13 | 2 | 2 | 3 |"
+        self.assertIn(original, lines)
+        lines[lines.index(original)] = mutated
+
+        errors: list[str] = []
+        agent_record.check_engine_summary_lines(self.rows, lines, errors)
+        require(
+            errors,
+            r"engine-matrix.md: area Engine and scheduling active=13; actual 12",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

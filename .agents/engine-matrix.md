@@ -36,13 +36,13 @@ forensics: roadmap_v1.md and the parity ledger.
 
 | Area | Rows | `ANCHOR-BACKFILL` | `PARTIAL` | `SPIKE` | `READY` | `ACTIVE` | `GATING` | `DONE` | `INVENTORIED` |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Engine and scheduling | 27 | 3 | 4 | 1 | 0 | 12 | 2 | 1 | 4 |
-| KV cache and memory | 21 | 1 | 2 | 2 | 2 | 7 | 2 | 1 | 4 |
+| Engine and scheduling | 27 | 3 | 3 | 1 | 0 | 12 | 2 | 2 | 4 |
+| KV cache and memory | 21 | 1 | 3 | 1 | 2 | 7 | 2 | 0 | 5 |
 | Parallelism | 6 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 5 |
 | Sampling and generation | 15 | 0 | 2 | 0 | 0 | 7 | 0 | 1 | 5 |
 | Structured output and tools | 7 | 0 | 3 | 0 | 0 | 2 | 0 | 0 | 2 |
 | Speculative decoding | 12 | 0 | 0 | 1 | 0 | 4 | 0 | 4 | 2 |
-| Serving, API, CLI, library | 22 | 3 | 2 | 2 | 0 | 7 | 2 | 1 | 5 |
+| Serving, API, CLI, library | 22 | 3 | 2 | 2 | 0 | 8 | 2 | 1 | 4 |
 | LoRA and adapters | 2 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 1 |
 | Long context and attention | 10 | 0 | 0 | 0 | 1 | 5 | 1 | 0 | 3 |
 | Loading, tokenizer, config | 9 | 1 | 3 | 0 | 0 | 2 | 1 | 1 | 1 |

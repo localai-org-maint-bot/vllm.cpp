@@ -2122,7 +2122,8 @@ _(Laguna decode KV+attention → shared-framework port, bf16-KV slice (2026-08-0
 
 ## Repository-record integrity
 
-`ROAD-V1-A6` per-area lifecycle-summary enforcement is `SPIKE` under
-`CLAIM-RECORD-AREA-SUMMARY`. The accepted CPU-only design will make the agent
-record checker validate every named engine area, not only the grand total. The
-next gate is a RED-first mutation followed by the full Python checker suite.
+`ROAD-V1-A6` per-area lifecycle-summary enforcement is `GATING` under
+`CLAIM-RECORD-AREA-SUMMARY`. The CPU-only checker now validates every named
+engine area as well as the grand total; its RED-first mutation passes and the
+three pre-existing stale area snapshots are reconciled. The next gate is PR
+review and CI; no feature lifecycle or support claim changed.

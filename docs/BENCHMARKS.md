@@ -11235,4 +11235,4 @@ steady-state per-step / nsys decode tok/s (eager vs graphed) is OWED.
 
 | Checkpoint | Disposition | Reproduction |
 |---|---|---|
-| `ROAD-V1-A6` per-area lifecycle-summary enforcement (`CLAIM-RECORD-AREA-SUMMARY`) | **NOT APPLICABLE.** CPU-only checker spike; no runtime, model, kernel, latency, throughput, or memory path changes. `benchmark_binding=false`. | Pending implementation gate: `python3 tests/scripts/test_agent_record.py` and `python3 scripts/check-agent-record.py`. |
+| `ROAD-V1-A6` per-area lifecycle-summary enforcement (`CLAIM-RECORD-AREA-SUMMARY`) | **NOT APPLICABLE.** CPU-only repository checker; no runtime, model, kernel, latency, throughput, or memory path changes. `benchmark_binding=false`. | `python3 tests/scripts/test_agent_record.py` (14 mutation tests) and `python3 scripts/check-agent-record.py` (ENGINE=131, MODEL=327, QUANT=82, KERNEL=45, BACKEND=68). |

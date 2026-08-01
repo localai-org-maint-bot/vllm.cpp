@@ -518,21 +518,27 @@ def check_matrices(errors: list[str]) -> tuple[list[ClaimRow], dict[str, ClaimRo
     return rows, by_id
 
 
-def check_engine_summary(rows: list[ClaimRow], errors: list[str]) -> None:
-    lines = ENGINE_MATRIX.read_text(encoding="utf-8").splitlines()
-    header: list[str] | None = None
-    total: list[str] | None = None
-    for line in lines:
-        if line.startswith("| Area | Rows |"):
-            header = [normalize_header(cell) for cell in split_cells(line)]
-        elif header is not None and line.startswith("| **Total** |"):
-            total = [cell.replace("*", "").strip() for cell in split_cells(line)]
-            break
-    if header is None or total is None or len(header) != len(total):
-        errors.append(f"{ENGINE_MATRIX.relative_to(ROOT)}: missing or malformed lifecycle summary")
-        return
+ENGINE_AREA_SECTIONS = {
+    "Engine and scheduling": "Engine core and scheduling",
+    "KV cache and memory": "KV cache and memory",
+    "Parallelism": "Parallelism and scale-out",
+    "Sampling and generation": "Sampling and generation controls",
+    "Structured output and tools": "Structured outputs and tool calling",
+    "Speculative decoding": "Speculative decoding",
+    "Serving, API, CLI, library": "Serving surface, CLI, and library",
+    "LoRA and adapters": "LoRA and adapters",
+    "Long context and attention": "Long context and attention breadth",
+    "Loading, tokenizer, config": "Loading, tokenizer, and config",
+}
 
-    actual_rows = [row for row in rows if row.path == ENGINE_MATRIX]
+
+def check_summary_counts(
+    label: str,
+    header: list[str],
+    cells: list[str],
+    actual_rows: list[ClaimRow],
+    errors: list[str],
+) -> None:
     expected = {"rows": len(actual_rows)}
     expected.update(
         {normalize_header(state): sum(row.state == state for row in actual_rows) for state in STATES}
@@ -541,14 +547,77 @@ def check_engine_summary(rows: list[ClaimRow], errors: list[str]) -> None:
         if name not in expected:
             continue
         try:
-            recorded = int(total[index])
-        except ValueError:
-            errors.append(f"{ENGINE_MATRIX.relative_to(ROOT)}: non-numeric total for {name}")
+            recorded = int(cells[index])
+        except (IndexError, ValueError):
+            errors.append(f"{ENGINE_MATRIX.relative_to(ROOT)}: non-numeric {label} {name}")
             continue
         if recorded != expected[name]:
             errors.append(
-                f"{ENGINE_MATRIX.relative_to(ROOT)}: summary {name}={recorded}; actual {expected[name]}"
+                f"{ENGINE_MATRIX.relative_to(ROOT)}: {label} {name}={recorded}; "
+                f"actual {expected[name]}"
             )
+
+
+def check_engine_summary_lines(
+    rows: list[ClaimRow], lines: list[str], errors: list[str]
+) -> None:
+    header: list[str] | None = None
+    total: list[str] | None = None
+    areas: dict[str, list[str]] = {}
+    for line_no, line in enumerate(lines, 1):
+        if line.startswith("| Area | Rows |"):
+            header = [normalize_header(cell) for cell in split_cells(line)]
+        elif header is not None and line.startswith("|") and not is_separator(split_cells(line)):
+            cells = [cell.replace("*", "").strip() for cell in split_cells(line)]
+            if not cells or cells[0] == "Area":
+                continue
+            if cells[0] == "Total":
+                total = cells
+                break
+            if cells[0] in areas:
+                errors.append(
+                    f"{ENGINE_MATRIX.relative_to(ROOT)}:{line_no}: "
+                    f"duplicate lifecycle summary area {cells[0]}"
+                )
+            areas[cells[0]] = cells
+    if header is None or total is None or len(header) != len(total):
+        errors.append(f"{ENGINE_MATRIX.relative_to(ROOT)}: missing or malformed lifecycle summary")
+        return
+
+    section_lines: dict[str, int] = {}
+    for line_no, line in enumerate(lines, 1):
+        if line.startswith("## "):
+            section_lines[line[3:].strip()] = line_no
+    ordered_sections = sorted(
+        (
+            (section_lines[heading], label)
+            for label, heading in ENGINE_AREA_SECTIONS.items()
+            if heading in section_lines
+        )
+    )
+    engine_rows = [row for row in rows if row.path == ENGINE_MATRIX]
+    for index, (start, label) in enumerate(ordered_sections):
+        end = ordered_sections[index + 1][0] if index + 1 < len(ordered_sections) else len(lines) + 1
+        cells = areas.get(label)
+        if cells is None:
+            errors.append(f"{ENGINE_MATRIX.relative_to(ROOT)}: missing lifecycle summary area {label}")
+            continue
+        check_summary_counts(
+            f"area {label}",
+            header,
+            cells,
+            [row for row in engine_rows if start < row.line_no < end],
+            errors,
+        )
+    for label in sorted(set(areas) - set(ENGINE_AREA_SECTIONS)):
+        errors.append(f"{ENGINE_MATRIX.relative_to(ROOT)}: unknown lifecycle summary area {label}")
+    check_summary_counts("summary", header, total, engine_rows, errors)
+
+
+def check_engine_summary(rows: list[ClaimRow], errors: list[str]) -> None:
+    check_engine_summary_lines(
+        rows, ENGINE_MATRIX.read_text(encoding="utf-8").splitlines(), errors
+    )
 
 
 def is_placeholder(value: str) -> bool:
