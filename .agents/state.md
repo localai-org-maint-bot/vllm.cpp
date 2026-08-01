@@ -34505,3 +34505,5 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+**Environment-doc read scanner corrected (2026-08-01, `CLAIM-ENV-DOC-READ-SCANNER`, `ROAD-V1-A6`).** Reproduced that the checker counted quoted env-looking text in comments and unrelated constants. A getenv-only repair passed the initial negative test but dropped 21 genuine wrapper-mediated reads, so the final design strips C/C++ comments and matches the full shipped reader-call family. RED-first mutations cover both failure modes; GREEN retains the full inventory, now 209 names after rebase. CPU/governance only, no lifecycle change, no production source, GPU, model, or benchmark work.

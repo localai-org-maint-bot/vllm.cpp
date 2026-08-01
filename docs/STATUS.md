@@ -2119,3 +2119,5 @@ _(Laguna decode KV+attention → shared-framework port, bf16-KV slice (2026-08-0
 
 <!-- decode/runtime framework-routing (2026-08-02) -->
 - **Decode/runtime framework-routing** — `GATING`. Third "MUST route through" seam codified (AGENTS.md) + CI-enforced (`check-runner-routing-consistency.py`, green: 27 models, 3 allowlisted). Landed: Laguna split-K attention + w13-fusion (82.7→83.2% of vLLM decode); shared `Qwen3DenseDecodeGraph` (5 registrations, GB10 token-exact 16/16); Qwen3VL + DeepSeek-V4 routed to on-device logits + runner entry. Pending: Laguna gate-up fold onto the shared MLP seam (allowlisted) + its full KV/attention port onto `AttnBlock` (the kernel-level residual to vLLM parity); CUDA re-gates for Qwen3VL/DS4 owed.
+
+**Environment-doc scanner hardening (2026-08-01).** `ROAD-V1-A6` keeps its prior lifecycle state. The CI inventory now counts actual environment-reader calls and ignores comments or unrelated quoted literals; all 209 reads in the rebased tree are covered. No runtime capability or support claim changed.

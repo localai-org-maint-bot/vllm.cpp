@@ -303,3 +303,16 @@ owns that row.
 **Not checked:** runtime behavior. This audit read source and records; nothing
 was built or executed, so "implemented" here means "present and reachable in
 source", grounded on the matrices' own gate evidence for correctness claims.
+
+## 6. Environment-read scanner maintenance (2026-08-01)
+
+The completeness checker originally harvested every quoted `VT_*` / `VLLM_*`
+literal. That contradicted its read-site contract: a quoted name in a comment,
+diagnostic, or lookup table was counted as a production environment read. The
+scanner now removes C/C++ comments and recognizes only calls through the
+repository's environment-reader family (`getenv`, `std::getenv`, and the seven
+local wrappers). Its mutation suite covers direct and multiline calls, all
+wrappers, comments, block comments, and unrelated string literals. The shipped
+inventory is 209 names after rebase, so no real read or classification was lost. This
+is a CI-governance correction only; no user-visible capability, production
+path, or benchmark axis changes.

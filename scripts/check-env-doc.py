@@ -24,11 +24,73 @@ SCAN_SUFFIXES = (".cpp", ".cc", ".cu", ".cuh", ".c", ".h", ".hpp", ".hh")
 ENV_DOC = ROOT / "docs/ENVIRONMENT.md"
 ALLOWLIST = ROOT / "scripts/env-doc-allowlist.txt"
 
-# A production env var is read as a quoted string literal, e.g. getenv("VT_FOO").
-# Match the quoted name so a bare mention in a comment is not counted as a read.
-_QUOTED = re.compile(r'"((?:VT_|VLLM_)[A-Z0-9_]+)"')
+# Production env vars in this tree are read through getenv/std::getenv or these
+# narrow local wrappers, all with a string-literal name. Restricting the match
+# to reader calls keeps comments, diagnostics and lookup-table strings from
+# silently expanding the inventory. Add new reader wrappers here with tests.
+_ENV_READER = (
+    r"(?:std::)?getenv|GetEnvNonEmpty|EnvOn|EnvOnOr|EnvironmentValue|"
+    r"EnvironmentBool|EnvironmentEnabled|GdnTritonEnvOn"
+)
+_ENV_READ = re.compile(
+    rf'\b(?:{_ENV_READER})\s*\(\s*"((?:VT_|VLLM_)[A-Z0-9_]+)"'
+)
 # A name token, used to harvest the documented set from the markdown / allowlist.
 _TOKEN = re.compile(r'\b((?:VT_|VLLM_)[A-Z0-9_]+)\b')
+
+
+def _without_cpp_comments(text: str) -> str:
+    """Remove C/C++ comments while preserving strings and line structure."""
+    out: list[str] = []
+    i = 0
+    state = "code"
+    while i < len(text):
+        char = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if state == "code":
+            if char == "/" and nxt == "/":
+                state = "line_comment"
+                out.extend("  ")
+                i += 2
+                continue
+            if char == "/" and nxt == "*":
+                state = "block_comment"
+                out.extend("  ")
+                i += 2
+                continue
+            if char == '"':
+                state = "string"
+            elif char == "'":
+                state = "char"
+            out.append(char)
+            i += 1
+            continue
+        if state == "line_comment":
+            if char == "\n":
+                state = "code"
+                out.append(char)
+            else:
+                out.append(" ")
+            i += 1
+            continue
+        if state == "block_comment":
+            if char == "*" and nxt == "/":
+                state = "code"
+                out.extend("  ")
+                i += 2
+            else:
+                out.append("\n" if char == "\n" else " ")
+                i += 1
+            continue
+        out.append(char)
+        if char == "\\" and nxt:
+            out.append(nxt)
+            i += 2
+            continue
+        if (state == "string" and char == '"') or (state == "char" and char == "'"):
+            state = "code"
+        i += 1
+    return "".join(out)
 
 
 def scan_env_names(root: Path) -> set[str]:
@@ -42,7 +104,7 @@ def scan_env_names(root: Path) -> set[str]:
             if path.suffix.lower() not in SCAN_SUFFIXES or not path.is_file():
                 continue
             text = path.read_text(encoding="utf-8", errors="ignore")
-            names.update(_QUOTED.findall(text))
+            names.update(_ENV_READ.findall(_without_cpp_comments(text)))
     return names
 
 

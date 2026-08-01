@@ -11230,3 +11230,5 @@ steady-state per-step / nsys decode tok/s (eager vs graphed) is OWED.
 
 <!-- framework-routing (2026-08-02) -->
 - Laguna-XS-2.1-NVFP4 decode (GB10, vs vLLM 42.46 tok/s): split-K + w13-fusion → 35.3 tok/s (83.2%). Residual is GPU-kernel work inside the graph (measured). PENDING: full KV/attention framework port. Qwen3DenseDecodeGraph ~4.3% e2e (directional; rigorous per-step tok/s OWED). Qwen3VL/DS4 routing = framework-conformance (no speed claim); CUDA re-gate OWED.
+
+**Environment-doc scanner hardening (2026-08-01, `CLAIM-ENV-DOC-READ-SCANNER`) — NOT APPLICABLE.** This maintenance checkpoint changes only Python CI-governance logic and its mutation tests. No production C/C++ path, workload, correctness result, latency, throughput, or memory behavior changed. CPU reproduction: `python3 tests/scripts/test_check_env_doc.py && python3 scripts/check-env-doc.py`; the rebased inventory contains 209 covered reads.
