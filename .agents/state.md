@@ -34505,3 +34505,28 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 - `ENG-CHUNKED-PREFILL` contract spike
+
+`CLAIM-ENG-CHUNKED-PREFILL-SPIKE`, isolated worktree
+`/home/mudler/_git/vllm.cpp-wt-eng-chunked-prefill`, branch
+`codex/eng-chunked-prefill-spike`, base `upstream/main` `1448e981`. CPU-only,
+records/spec scope; no GPU, model, download, source, test, or benchmark change.
+
+Accepted `.agents/specs/chunked-prefill.md` at pin `555967922`. The audit
+confirms the basic slice already exists: config validation, token-budget and
+long-prefill clipping in both running/waiting loops, multi-step partial state,
+no partial output, and speculative-token exclusion. It also makes the evidence
+gap precise: port `test_schedule_partial_requests`, `test_schedule_order` with
+chunking on/off, and `test_schedule_concurrent_partial_requests` with prefix caching on/off, including
+the 400/400/224 distribution, before advancing the row. Multimodal boundaries,
+Mamba alignment/fine-grained prefix stops, DP throttling, pooling policy, and
+configurable partial-prefill limits remain separate rows/scopes. The row moves
+`ANCHOR-BACKFILL` -> `SPIKE`; no support claim advances.
+
+The required selection Slack notification used the bundled secret-safe sender
+and failed with `channel_not_found` for `#general`; no Slack channel was
+configured and no credential was read. Next CPU command is the focused
+`test_scheduler`/`test_scheduler_config` recipe in the spike. The exact GPU
+workload/commands are recipe-definition PENDING until CP1 fixes the semantic
+workload; binding speed closure remains GPU-required.
