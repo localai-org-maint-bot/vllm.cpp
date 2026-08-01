@@ -87,6 +87,13 @@ RE_VT_IFDEF = re.compile(r"^\s*#\s*(?:ifdef\s+VT_\w+|if\s+defined\s*\(\s*VT_\w+)
 # non-CUDA build. `VT_*` gates are CUDA kernel-feature macros, only ever defined
 # by the CUDA build (cmake/CudaArchFeatures.cmake).
 RE_CUDA_GUARD = re.compile(r"\b(VLLM_CPP_CUDA|VT_\w+|__CUDACC__|CUDA_VERSION)\b")
+CUDA_GUARD_NAME = r"(?:VLLM_CPP_CUDA|VT_\w+|__CUDACC__|CUDA_VERSION)"
+RE_DEFINED_CUDA_GUARD = re.compile(
+    rf"defined\s*(?:\(\s*)?{CUDA_GUARD_NAME}\s*\)?"
+)
+RE_NEGATED_DEFINED_CUDA_GUARD = re.compile(
+    rf"!\s*defined\s*(?:\(\s*)?{CUDA_GUARD_NAME}\s*\)?"
+)
 
 RE_DSR_ALLOW = re.compile(r"//\s*DSR-ALLOW\(\s*([A-Za-z0-9_.\-]+)\s*\)\s*:\s*(\S.*?)\s*$")
 
@@ -251,6 +258,39 @@ def strip_comments_and_strings(text: str) -> list[str]:
     return "".join(out).splitlines()
 
 
+def cuda_branch_polarity(kind: str, condition: str) -> int:
+    """Classify a preprocessor branch as CUDA-only (1), portable (-1), or neutral."""
+    if not RE_CUDA_GUARD.search(condition):
+        return 0
+    if kind == "ifndef":
+        return -1
+
+    # When the expression contains only CUDA-family predicates, evaluate its
+    # truth in a portable build, where every such macro is undefined/false.
+    # False means the arm requires CUDA; true means its #else requires CUDA.
+    portable_expr = RE_DEFINED_CUDA_GUARD.sub("0", condition)
+    portable_expr = RE_CUDA_GUARD.sub("0", portable_expr)
+    if re.fullmatch(r"[\s01!&|()]+", portable_expr):
+        python_expr = portable_expr.replace("&&", " and ").replace("||", " or ")
+        python_expr = re.sub(r"!(?!=)", " not ", python_expr)
+        try:
+            portable_value = bool(eval(python_expr, {"__builtins__": {}}, {}))
+        except (SyntaxError, ValueError):
+            pass
+        else:
+            return -1 if portable_value else 1
+
+    # Unknown terms make disjunctions ambiguous, so count both arms
+    # conservatively. In a conjunction, an unnegated CUDA term still proves the
+    # arm cannot compile in a portable build.
+    if "||" in condition:
+        return 0
+    without_negated_guards = RE_NEGATED_DEFINED_CUDA_GUARD.sub("", condition)
+    if RE_CUDA_GUARD.search(without_negated_guards):
+        return 1
+    return 0
+
+
 def cuda_guard_depth(raw_lines: list[str]) -> list[bool]:
     """Per line: is it inside a CUDA / VT_* preprocessor conditional?
 
@@ -259,31 +299,28 @@ def cuda_guard_depth(raw_lines: list[str]) -> list[bool]:
     leakage.
     """
     guarded: list[bool] = []
-    stack: list[bool] = []
+    stack: list[int] = []
     for line in raw_lines:
         m = RE_PP_IF.match(line)
         if m:
-            stack.append(bool(RE_CUDA_GUARD.search(m.group(2))))
-            guarded.append(any(stack))
+            stack.append(cuda_branch_polarity(m.group(1), m.group(2)))
+            guarded.append(1 in stack)
             continue
         m = RE_PP_ELIF.match(line)
         if m and stack:
-            stack[-1] = bool(RE_CUDA_GUARD.search(m.group(1)))
-            guarded.append(any(stack))
+            stack[-1] = cuda_branch_polarity("if", m.group(1))
+            guarded.append(1 in stack)
             continue
         if RE_PP_ELSE.match(line) and stack:
-            # The negative arm of a CUDA guard is the PORTABLE arm; a CUDA
-            # include there would be a genuine break, so stop treating it as
-            # guarded.
-            stack[-1] = False
-            guarded.append(any(stack))
+            stack[-1] = -stack[-1]
+            guarded.append(1 in stack)
             continue
         if RE_PP_ENDIF.match(line):
             if stack:
                 stack.pop()
-            guarded.append(any(stack))
+            guarded.append(1 in stack)
             continue
-        guarded.append(any(stack))
+        guarded.append(1 in stack)
     return guarded
 
 

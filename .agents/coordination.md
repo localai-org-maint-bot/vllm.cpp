@@ -132,6 +132,23 @@ leaves. Owns only NEW `.agents/specs/cli-chat-complete.md`, the
 fixture, or GPU/model-download change; verification is the CPU record/doc
 checker suite. The row and open-PR list were unclaimed at selection time.
 
+**Device-leakage preprocessor polarity hardening (`ROAD-V1-A6`,
+`BACKEND-SEAM-AUDIT` work row S1, 2026-08-01,
+`CLAIM-DSR-GUARD-POLARITY`).** Codex (GPT-5), isolated worktree
+`/home/mudler/_git/vllm.cpp-wt-dsr-guard-polarity`, branch
+`codex/dsr-guard-polarity`, base `upstream/main` `1448e981`. CPU-only bugfix:
+the S1 ratchet currently treats negative CUDA guards (`#ifndef
+VLLM_CPP_CUDA`, `#if !defined(VLLM_CPP_CUDA)`) as CUDA-only branches and
+therefore fails open for CUDA includes in portable code while classifying their
+CUDA `#else` arms in reverse. Owns only `scripts/check-device-leakage.py`,
+`tests/scripts/test_device_leakage.py`, this claim, the S1 hardening note in
+`.agents/specs/accelerator-seam-audit.md`, and the required no-lifecycle-change
+checkpoint notes in `docs/STATUS.md`, `docs/BENCHMARKS.md`,
+`.agents/parity-ledger.md`, and `.agents/state.md`. No source, header, CMake,
+workflow, baseline-count, lifecycle, support, README, GPU, model, download, or
+benchmark change. Verification is RED/GREEN mutation evidence, the full Python
+mutation suite, and all record/document checkers.
+
 **Canonical DONE-owner reachability repair (`KV-PREFIX-CACHE`,
 `SAMPLE-LOGPROBS`, `SPEC-DFLASH`,
 `MODEL-SPEC-qwen3-dflash-dflash-qwen3-for-causal-lm`,

@@ -37,6 +37,11 @@ without behavior or lifecycle changes. The production library and focused
 tests build clean; the all-target build remains PARTIAL on two unrelated
 test-only `-Wrestrict` diagnostics, recorded in [BENCHMARKS](BENCHMARKS.md).
 
+CI governance (`ROAD-V1-A6`, 2026-08-01): the device-specific-reference
+ratchet remains `DONE` at DSR 32, with no lifecycle or support change. Its
+preprocessor classifier now handles negative CUDA guards and their `#else`
+arms with the correct polarity; 32 CPU-only mutations gate the contract.
+
 vllm.cpp implements an intentionally focused subset of vLLM, held to
 token-for-token correctness against the pinned oracle.
 

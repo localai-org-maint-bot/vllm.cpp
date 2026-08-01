@@ -207,6 +207,73 @@ class DsrRatchetMutationTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.require(err, "DSR REGRESSION in bucket 'vt_ifdef': 1 > baseline 0")
 
+    def test_M20_cuda_include_in_ifndef_portable_arm_counts(self) -> None:
+        # `#ifndef VLLM_CPP_CUDA` selects the portable build. A CUDA header in
+        # that arm breaks exactly the configuration this ratchet protects.
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            '#ifndef VLLM_CPP_CUDA\n#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 1)
+
+    def test_M21_cuda_include_in_ifndef_else_arm_does_not_count(self) -> None:
+        # The `#else` of a negative CUDA guard is the CUDA-only arm.
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            '#ifndef VLLM_CPP_CUDA\n#else\n#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 0)
+
+    def test_M22_cuda_include_in_negated_defined_portable_arm_counts(self) -> None:
+        # The equivalent expression form must have the same polarity as
+        # `#ifndef`, including optional whitespace after `!`.
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            '#if ! defined(VLLM_CPP_CUDA)\n#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 1)
+
+    def test_M23_cuda_include_in_negated_defined_else_arm_does_not_count(self) -> None:
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            '#if !defined(VLLM_CPP_CUDA)\n#else\n#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 0)
+
+    def test_M24_positive_compound_cuda_guard_remains_guarded(self) -> None:
+        # A negated feature term does not make a branch portable when another
+        # positive CUDA-family term is required to enter it.
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            "#if defined(VLLM_CPP_CUDA) && !defined(VT_OPTION)\n"
+            '#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 0)
+
+    def test_M25_positive_compound_cuda_guard_else_arm_counts(self) -> None:
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            "#if defined(VLLM_CPP_CUDA) && !defined(VT_OPTION)\n"
+            '#else\n#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 1)
+
+    def test_M26_disjunction_reachable_on_cpu_counts(self) -> None:
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            "#if !defined(VLLM_CPP_CUDA) || defined(VT_OPTION)\n"
+            '#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 1)
+
+    def test_M27_disjunction_else_arm_is_cuda_only(self) -> None:
+        self.tree.append(
+            "src/vllm/model_executor/models/toy.cpp",
+            "#if !defined(VLLM_CPP_CUDA) || defined(VT_OPTION)\n"
+            '#else\n#include "vt/cuda/marlin.h"\n#endif\n',
+        )
+        self.assertEqual(self.tree.scan().counts["cuda_inc"], 0)
+
     def test_M18_leak_hidden_behind_a_helper_still_counts(self) -> None:
         # Risk 2 of the audit: the metric must not be gameable by moving the test
         # into a helper — the helper lives in the shared layer and is counted.

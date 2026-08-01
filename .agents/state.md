@@ -34505,3 +34505,19 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 - DSR negative-guard polarity hardening
+
+`CLAIM-DSR-GUARD-POLARITY`, isolated worktree
+`/home/mudler/_git/vllm.cpp-wt-dsr-guard-polarity`, branch
+`codex/dsr-guard-polarity`, base `upstream/main` `1448e981`, CPU-only. The S1
+device-leakage ratchet stored only whether a conditional mentioned a CUDA macro,
+so `#ifndef VLLM_CPP_CUDA` and `#if !defined(VLLM_CPP_CUDA)` were treated as
+CUDA-only while their `#else` arms were treated as portable. Four RED-first
+mutations reproduced both spellings and both inverted arms; two compound-guard
+mutations preserve positive CUDA-term precedence; two disjunction mutations
+prove the CPU-reachable arm remains counted. The classifier now
+stores CUDA-only / portable-only / unrelated polarity and inverts it at
+`#else`; nested positive guards retain their prior behavior. Full mutation suite
+32/32 and real-tree DSR 32/32 pass. No GPU, compiler, model, download, runtime,
+baseline, lifecycle, support, or benchmark change.
