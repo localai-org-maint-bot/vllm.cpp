@@ -1,8 +1,9 @@
 # vllm.cpp status
 
-**CI governance checkpoint (2026-08-01):** `ROAD-V1-A6` has an accepted
-CPU-only spike for the per-commit cancellation gap. Implementation is pending;
-no runtime capability or support state changes.
+**CI governance checkpoint (2026-08-01):** `ROAD-V1-A6` per-commit cancellation
+repair is implementation-complete and CPU-gated. The documentation and
+commit-protocol jobs cannot cancel their unique push ranges; no runtime
+capability or support state changes.
 
 **Roadmap-v1 reality audit (2026-07-31, `CLAIM-ROADMAP-V1-AUDIT`, `.agents/specs/roadmap-v1-audit-2026-07-31.md`):** an 8-lane code-grounded audit + adversarial DONE-verify (26 agents) vs the 18-row plan-of-record. Correctness + CPU-gated features are REAL; the dominant open gate across nearly all RI rows is **every-axis SPEED**; most GPU "DONE" proofs are DGX-recorded (not re-verifiable on the current box). **4 DONE claims refuted:** MM-video is near-tie not STRICT; Gemma-4 image is 16/18 near-tie not STRICT 18/18 (audio unbuilt); ROAD-V1-A (async code DONE but both SGLang-floor arms never ran, 27B 114/124 coin-flip not clean); C6 async-serving (SERVE-ASYNC-LLM still GATING). D5 LoRA is an unwired standalone CPU brick. Fixed `backend-matrix` BACKEND-GATE-CUDA-VLLM staleness 49/124 → 114/124. (Follow-up: reworded a spec code-snippet `check-agent-record` misread as a dangling link — rc=0.)
 

@@ -150,6 +150,8 @@ checkpoint text, NEW
 runtime, model, kernel, fixture, README, lifecycle, support, or benchmark change;
 verification is the CPU Python mutation test plus all record/document checkers.
 No GPU, model download, compiler, external host, or parallel agent is required.
+**LANDED + CPU-GATED locally:** focused invariant 3/3 and full script suite
+98/98; push/PR and hosted CI are pending.
 
 **Canonical DONE-owner reachability repair (`KV-PREFIX-CACHE`,
 `SAMPLE-LOGPROBS`, `SPEC-DFLASH`,

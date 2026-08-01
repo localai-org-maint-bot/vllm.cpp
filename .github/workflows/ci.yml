@@ -56,9 +56,6 @@ jobs:
           python3 scripts/check-runner-routing-consistency.py
           python3 tests/scripts/test_check_runner_routing_consistency.py
   documentation-checkpoint:
-    concurrency:
-      group: ci-doc-${{ github.ref }}-${{ github.repository }}
-      cancel-in-progress: true
     # Gate: every code/test/benchmark/spike/lifecycle iteration refreshes both
     # user-facing status surfaces in that same commit, including void attempts.
     #
@@ -88,9 +85,6 @@ jobs:
           fi
           python3 scripts/check-doc-checkpoint.py --base "$base" --head "$head"
   commit-protocol-tag:
-    concurrency:
-      group: ci-commit-${{ github.ref }}-${{ github.repository }}
-      cancel-in-progress: true
     # Gate: every NEW commit must carry the FOLLOWING_AGENTS_PROTOCOL trailer,
     # asserting the contributor read AGENTS.md. See .agents/ai-coding-assistants.md.
     #

@@ -34515,3 +34515,11 @@ main push can permanently suppress the earlier range. The accepted spec limits
 the fix to removing those two job-level cancellation blocks and adding a
 mutation-tested static invariant. No implementation, runtime, lifecycle, GPU,
 model, or benchmark change is claimed at this checkpoint.
+
+## 2026-08-01 — `ROAD-V1-A6` per-commit CI cancellation repair implemented
+
+`CI-PC1` RED produced four violations, one `concurrency` and one
+`cancel-in-progress` finding for each protected job. `CI-PC2` removed only those
+two job-level blocks; workflow-level PR deduplication and every tree-scoped job
+remain unchanged. Focused test is 3/3 and full script unittest discovery is
+98/98. Push, PR, hosted CI inspection, and the second Slack notification remain.
