@@ -98,6 +98,24 @@ class ModelChecklistTests(unittest.TestCase):
         errors = mod.checklist_errors(mutated)
         self.assertTrue(any("Total" in e for e in errors), errors)
 
+    def test_duplicate_rollup_state_fails(self) -> None:
+        mutated = VALID.replace(
+            "| ACTIVE | 1 |",
+            "| ACTIVE | 1 |\n| ACTIVE | 1 |",
+        )
+        errors = mod.checklist_errors(mutated)
+        self.assertTrue(
+            any("duplicate rollup state ACTIVE" in e for e in errors), errors
+        )
+
+    def test_duplicate_rollup_total_fails(self) -> None:
+        mutated = VALID.replace(
+            "| **Total** | **3** |",
+            "| **Total** | **3** |\n| **Total** | **3** |",
+        )
+        errors = mod.checklist_errors(mutated)
+        self.assertTrue(any("duplicate rollup Total" in e for e in errors), errors)
+
     def test_omitted_engaged_architecture_fails(self) -> None:
         # Drop the ✅ entry for the ACTIVE row: an engaged row is now uncovered.
         mutated = VALID.replace(

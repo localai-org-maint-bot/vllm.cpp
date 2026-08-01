@@ -11230,3 +11230,13 @@ steady-state per-step / nsys decode tok/s (eager vs graphed) is OWED.
 
 <!-- framework-routing (2026-08-02) -->
 - Laguna-XS-2.1-NVFP4 decode (GB10, vs vLLM 42.46 tok/s): split-K + w13-fusion → 35.3 tok/s (83.2%). Residual is GPU-kernel work inside the graph (measured). PENDING: full KV/attention framework port. Qwen3DenseDecodeGraph ~4.3% e2e (directional; rigorous per-step tok/s OWED). Qwen3VL/DS4 routing = framework-conformance (no speed claim); CUDA re-gate OWED.
+
+## Architecture-checklist rollup uniqueness (2026-08-01) - NOT APPLICABLE
+
+`ROAD-V1-A6` / `CLAIM-MODEL-CHECKLIST-ROLLUP-UNIQUENESS` is a pure Python
+governance-checker repair. Duplicate lifecycle-count or `Total` rows in the
+model architecture checklist are now rejected instead of silently overwritten.
+No source, model, workload, lifecycle, or runtime behavior changed, so no
+throughput, latency, or memory number is applicable. Verification is the
+RED-first focused mutation suite, the full Python checker suite, and the
+standalone repository record checkers.

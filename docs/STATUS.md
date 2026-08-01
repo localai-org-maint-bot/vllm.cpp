@@ -31,6 +31,10 @@ citing "vLLM 0.25.0" are the last binding measurement against the prior oracle
 
 ## Capability status
 
+Architecture-checklist integrity maintenance (2026-08-01): duplicate lifecycle
+count rows and duplicate `Total` rows are now rejected by the model-checklist
+CI checker. This changes no capability lifecycle or support claim.
+
 GCC 12 production-library maintenance (2026-07-31): the two known `-Werror`
 blockers in GGUF prefaulting and KV-offload temporary-file naming are fixed
 without behavior or lifecycle changes. The production library and focused

@@ -132,6 +132,26 @@ leaves. Owns only NEW `.agents/specs/cli-chat-complete.md`, the
 fixture, or GPU/model-download change; verification is the CPU record/doc
 checker suite. The row and open-PR list were unclaimed at selection time.
 
+**Architecture checklist rollup uniqueness (`ROAD-V1-A6`, 2026-08-01,
+`CLAIM-MODEL-CHECKLIST-ROLLUP-UNIQUENESS`).** Codex (GPT-5), isolated worktree
+`/home/mudler/_git/vllm.cpp-wt/codex-cpu-audit`, branch
+`codex/road-v1-a6-model-rollup-uniqueness`, base `upstream/main` `1448e981`.
+CPU-only governance bugfix: the architecture-support checker currently accepts
+duplicate lifecycle-count and `Total` rows when their final parsed values match
+the detailed model matrix. Reject duplicate binding rollup keys explicitly and
+mutation-test both state and `Total` duplicates. Owns only
+`scripts/check-model-checklist.py`,
+`tests/scripts/test_check_model_checklist.py`, NEW
+`.agents/specs/model-checklist-rollup-integrity.md`, this claim, and the required
+no-lifecycle-change checkpoint notes in `.agents/roadmap_v1.md`,
+`docs/STATUS.md`, `docs/BENCHMARKS.md`, `.agents/parity-ledger.md`, and append-only
+`.agents/state.md`. No source, header, CMake, model-matrix, lifecycle, benchmark,
+README, or support-claim change. Verification is the focused mutation suite,
+the full Python checker suite, and all repository record/document checkers; no
+GPU, model, compiler, or download is required.
+**IMPLEMENTED + CPU-GATED:** focused 12/12 and full Python checker suite 97/97;
+all eight standalone Python repository checkers pass. PR creation is pending.
+
 **Canonical DONE-owner reachability repair (`KV-PREFIX-CACHE`,
 `SAMPLE-LOGPROBS`, `SPEC-DFLASH`,
 `MODEL-SPEC-qwen3-dflash-dflash-qwen3-for-causal-lm`,

@@ -135,10 +135,13 @@ def _checklist_section(text: str) -> list[str]:
     return out
 
 
-def parse_rollup(section: list[str]) -> tuple[dict[str, int], int | None]:
-    """Parse the rollup state-count table: rows `| STATE | N |` plus `| Total | N |`."""
+def parse_rollup(
+    section: list[str],
+) -> tuple[dict[str, int], int | None, list[str]]:
+    """Parse the rollup and report duplicate binding state/Total rows."""
     counts: dict[str, int] = {}
     total: int | None = None
+    duplicates: list[str] = []
     canonical = {s.lower(): s for s in STATES}
     for line in section:
         if not line.strip().startswith("|"):
@@ -151,10 +154,15 @@ def parse_rollup(section: list[str]) -> tuple[dict[str, int], int | None]:
         if not re.fullmatch(r"\d+", value):
             continue
         if key == "total":
+            if total is not None:
+                duplicates.append("duplicate rollup Total row")
             total = int(value)
         elif key in canonical:
-            counts[canonical[key]] = int(value)
-    return counts, total
+            state = canonical[key]
+            if state in counts:
+                duplicates.append(f"duplicate rollup state {state} row")
+            counts[state] = int(value)
+    return counts, total, duplicates
 
 
 def parse_entries(section: list[str]) -> list[tuple[str, str | None, str]]:
@@ -195,7 +203,8 @@ def checklist_errors(text: str) -> list[str]:
         return [f"missing required section: '{CHECKLIST_HEADING}'"]
 
     # --- Rollup counts must match the real per-state row counts, exactly. ---
-    rollup, total = parse_rollup(section)
+    rollup, total, duplicates = parse_rollup(section)
+    errors.extend(duplicates)
     for state, actual in sorted(actual_counts.items()):
         if state not in rollup:
             errors.append(

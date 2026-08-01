@@ -34505,3 +34505,20 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 - Architecture checklist rollup uniqueness
+
+- Claim: `ROAD-V1-A6` / `CLAIM-MODEL-CHECKLIST-ROLLUP-UNIQUENESS`, isolated
+  worktree `/home/mudler/_git/vllm.cpp-wt/codex-cpu-audit`, branch
+  `codex/road-v1-a6-model-rollup-uniqueness`, base `1448e981`.
+- Reproduced the defect with the real pure checker API: inserting an identical
+  `ACTIVE` row or identical `Total` row into the valid fixture returned `[]`.
+  Root cause was last-write-wins dictionary assignment in `parse_rollup()`.
+- Decision: reject duplicates explicitly, rather than summing them or adding a
+  generic Markdown schema layer. Each rollup key is one binding snapshot row.
+- TDD evidence: the two mutations failed 2/12 before implementation, then the
+  focused suite passed 12/12 and the full Python checker suite passed 97/97.
+  All eight standalone Python repository checkers pass. The unrelated Triton
+  AOT shell mutation suite cannot start because this host has no `cmake`; no
+  Triton/CMake/artifact file is in the diff. No GPU, compiler, model, download,
+  lifecycle, or benchmark is involved.
