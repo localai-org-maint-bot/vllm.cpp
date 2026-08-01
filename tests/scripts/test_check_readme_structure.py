@@ -123,6 +123,15 @@ class ReadmeStructureTests(unittest.TestCase):
         errors = readme_structure.readme_errors(mutated)
         self.assertTrue(any("wall-of-prose" in e for e in errors), errors)
 
+    def test_escaped_pipe_cannot_split_oversized_cell(self) -> None:
+        # Each fragment is under the limit, but Markdown treats \| as literal
+        # content, so this is one oversized cell rather than three cells.
+        fragment = "x" * 100
+        wall = f"{fragment} \\| {fragment} \\| {fragment}"
+        mutated = VALID.replace("| Thing | Works |", f"| Thing | {wall} |")
+        errors = readme_structure.readme_errors(mutated)
+        self.assertTrue(any("wall-of-prose" in e for e in errors), errors)
+
     def test_long_prose_paragraph_fails(self) -> None:
         # A wall-of-prose paragraph is the drift this rule exists to stop. It is
         # reported as a paragraph problem, not as a table-cell one.

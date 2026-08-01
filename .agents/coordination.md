@@ -118,6 +118,23 @@ without the selected contention proof for their entire run are discarded.
 
 ## Active claims
 
+**README escaped-pipe cell-budget repair (`ROAD-V1-A6`, 2026-08-01,
+`CLAIM-README-ESCAPED-PIPE`, LANDED + CPU-GATED).** Codex (GPT-5), isolated worktree
+`/home/mudler/.cache/sdd/localai-org-maint-bot-vllm.cpp/codex-readme-escaped-pipe`,
+branch `codex/readme-escaped-pipe`, base `upstream/main` `1448e981`. CPU-only
+governance bugfix: base `1448e981` split table rows on escaped Markdown pipes,
+allowing one oversized prose cell to evade the per-cell budget when `\|` divided
+it into shorter fragments. The escaped-pipe-aware splitter and RED-first
+mutation close that fail-open path. Owns only NEW
+`.agents/specs/readme-escaped-pipe-cell-budget.md`, the parser and mutation
+coverage in `scripts/check-readme-structure.py` and
+`tests/scripts/test_check_readme_structure.py`, this claim, the minimal
+`ROAD-V1-A6` checkpoint note, `docs/STATUS.md`, `docs/BENCHMARKS.md`,
+`.agents/parity-ledger.md`, and append-only `.agents/state.md`. No runtime C/C++,
+README content, lifecycle, support claim, model, build, GPU, download, or
+benchmark change. Verification: focused suite 19/19, full Python script suite
+96/96, every standalone repository checker, and Git whitespace checks.
+
 **Interactive CLI chat/complete spike (`SERVE-CLI-CHAT`, 2026-08-01,
 `CLAIM-SERVE-CLI-CHAT-SPIKE`).** Codex (GPT-5), isolated worktree
 `/home/mudler/.cache/sdd/localai-org-maint-bot-vllm.cpp/codex-serve-cli-chat-spike`,

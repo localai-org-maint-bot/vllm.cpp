@@ -34505,3 +34505,19 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 - README escaped-pipe cell-budget repair
+
+`CLAIM-README-ESCAPED-PIPE`, `ROAD-V1-A6`, isolated worktree
+`/home/mudler/.cache/sdd/localai-org-maint-bot-vllm.cpp/codex-readme-escaped-pipe`,
+base `upstream/main` `1448e981`, CPU-only. The README structure checker split
+table rows with raw `str.split("|")`; an escaped Markdown pipe therefore divided
+one real cell into fragments and let an oversized prose cell pass. The accepted
+design uses the repository's existing negative-lookbehind convention to split
+only unescaped delimiter pipes.
+
+TDD evidence: the new mutation failed alone on the base behavior with
+`errors == []`; after the parser fix, the focused README suite passes 19/19 and
+the complete `tests/scripts` suite passes 96/96. No runtime C/C++, README
+content, lifecycle, support claim, model, build, GPU, download, or benchmark
+changed. Final standalone checker and Git-hygiene results are recorded in the PR.

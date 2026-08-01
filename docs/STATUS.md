@@ -31,6 +31,13 @@ citing "vLLM 0.25.0" are the last binding measurement against the prior oracle
 
 ## Capability status
 
+`ROAD-V1-A6` documentation governance (2026-08-01,
+`CLAIM-README-ESCAPED-PIPE`): the README table-cell budget now treats escaped
+Markdown pipes as cell content, closing a fail-open path that could hide one
+oversized prose cell behind individually sub-threshold fragments. This is a
+checker-only repair; lifecycle states, support claims, and README content are
+unchanged.
+
 GCC 12 production-library maintenance (2026-07-31): the two known `-Werror`
 blockers in GGUF prefaulting and KV-offload temporary-file naming are fixed
 without behavior or lifecycle changes. The production library and focused

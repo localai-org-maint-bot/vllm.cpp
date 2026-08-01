@@ -13,6 +13,7 @@ tests/scripts/test_check_readme_structure.py), mirroring check-doc-checkpoint.py
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -59,6 +60,16 @@ def _h2_headers(text: str) -> list[str]:
 
 def _is_separator_row(cells: list[str]) -> bool:
     return all(set(cell) <= set("-: ") for cell in cells)
+
+
+def _split_table_cells(line: str) -> list[str]:
+    """Split a Markdown table row without treating escaped pipes as delimiters."""
+    body = line.strip()
+    if body.startswith("|"):
+        body = body[1:]
+    if body.endswith("|"):
+        body = body[:-1]
+    return [cell.strip() for cell in re.split(r"(?<!\\)\|", body)]
 
 
 def _prose_paragraphs(text: str) -> list[tuple[int, str]]:
@@ -162,7 +173,7 @@ def readme_errors(text: str) -> list[str]:
         if in_fence:
             continue
         if stripped.startswith("|") and stripped.endswith("|"):
-            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            cells = _split_table_cells(stripped)
             if _is_separator_row(cells):
                 continue
             for cell in cells:
