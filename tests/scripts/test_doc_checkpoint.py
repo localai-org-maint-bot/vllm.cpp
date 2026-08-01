@@ -42,6 +42,18 @@ class DocumentationCheckpointTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertTrue(doc_checkpoint.checkpoint_errors({path}))
 
+    def test_all_binding_record_surfaces_are_checkpoints(self) -> None:
+        for path in (
+            ".agents/sglang-matrix.md",
+            ".agents/environment.md",
+            ".agents/sync/2026-08-01-example.md",
+        ):
+            with self.subTest(path=path):
+                errors = doc_checkpoint.checkpoint_errors({path})
+                self.assertEqual(len(errors), 2)
+                self.assertIn("docs/STATUS.md", errors[0])
+                self.assertIn("docs/BENCHMARKS.md", errors[1])
+
     def test_both_public_documents_satisfy_checkpoint(self) -> None:
         self.assertEqual(
             doc_checkpoint.checkpoint_errors(

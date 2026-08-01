@@ -118,6 +118,22 @@ without the selected contention proof for their entire run are discarded.
 
 ## Active claims
 
+**Documentation-checkpoint canonical-record coverage (`ROAD-V1-A6`,
+2026-08-01, `CLAIM-ROAD-V1-A6-DOC-CHECKPOINT-COVERAGE`).** Codex (GPT-5),
+isolated worktree `/home/mudler/_git/vllm.cpp-codex-cpu-20260801`, branch
+`codex/cpu-maintenance-20260801b`, base `upstream/main` `1448e981`. CPU-only
+governance bugfix under the accepted
+`.agents/specs/docs-coverage-audit.md`: `scripts/check-doc-checkpoint.py` omits
+the canonical `.agents/sglang-matrix.md`, `.agents/environment.md`, and
+`.agents/sync/` record surfaces, allowing binding parity/environment/sync
+checkpoints to bypass the required same-commit `docs/STATUS.md` and
+`docs/BENCHMARKS.md` update. Owns only the checker, its mutation tests, this
+claim, the `ROAD-V1-A6` current-state cell, the two required public checkpoint
+notes, and append-only state/ledger evidence. No runtime source, build, model,
+kernel, lifecycle, support claim, README, or benchmark number changes. No GPU,
+model, compiler, external host, or download is required; verification is the
+Python checker mutation suite plus the repository record/document checkers.
+
 **Interactive CLI chat/complete spike (`SERVE-CLI-CHAT`, 2026-08-01,
 `CLAIM-SERVE-CLI-CHAT-SPIKE`).** Codex (GPT-5), isolated worktree
 `/home/mudler/.cache/sdd/localai-org-maint-bot-vllm.cpp/codex-serve-cli-chat-spike`,

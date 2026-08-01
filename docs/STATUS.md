@@ -2109,6 +2109,11 @@ _(Laguna decode KV+attention → shared-framework port, bf16-KV slice (2026-08-0
 
 **Canonical record-owner repair (2026-07-31).** No lifecycle or support status changed. Six existing `DONE` rows now point to their reachable binding closure commits; this is records-only metadata maintenance.
 
+**Documentation checkpoint coverage (2026-08-01).** The same-commit public-doc
+gate now treats `.agents/sglang-matrix.md`, `.agents/environment.md`, and
+`.agents/sync/` reports as binding checkpoint surfaces. This is governance
+hardening only; no capability lifecycle or support claim changed.
+
 **Shared pure-dense decode CUDA-graph — `Qwen3DenseModel`, 5 registrations (2026-08-02).** Added `Qwen3DenseDecodeGraph` (opt-in `VLLM_CPP_QWEN3_DENSE_DECODE_GRAPH`), the pure-dense sibling of the shipped `Qwen3MoeDecodeGraph`, driving the SHARED `Qwen3DenseModel` forward so `Qwen3ForCausalLM` + `LlamaForCausalLM` + `InternLM3ForCausalLM` + `MistralForCausalLM` + `InternLM2ForCausalLM` all pick up a captured decode graph at once (Llama/Mistral/InternLM2 alias `Qwen3DenseModel`). The eager forward is split into `EmbedInto` (outside capture) + `ForwardLayers` (the captured region); same cold→warm→capture→replay state machine + padded-batch capture set as the siblings. dgx GB10 SACRED near-tie gate (`test_qwen3_paged_engine`) with the graph ON: Qwen3-0.6B + Qwen3-4B both 16/16 PASS, 0 forward-divergent, BYTE-IDENTICAL to the eager (graph-OFF) baseline (captured S=1, 239 replays/checkpoint). Default OFF keeps the eager path byte-identical (SACRED default gates untouched). Rigorous steady-state decode tok/s (eager vs graphed) OWED. See commit.
 
 **CI repair — CPU build leg + two static-gate holes (2026-08-02).** Three jobs were RED on `main` (`ca5c7adc`); no lifecycle, support status or forward path changed.

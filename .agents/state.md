@@ -34505,3 +34505,12 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+**Documentation-checkpoint canonical-record coverage (2026-08-01,
+`CLAIM-ROAD-V1-A6-DOC-CHECKPOINT-COVERAGE`).** CPU-only governance fix for
+`ROAD-V1-A6`: `check-doc-checkpoint.py` previously omitted the binding SGLang
+matrix, environment registry, and upstream-sync report directory, so changes to
+those records could bypass the required same-commit STATUS/BENCHMARKS update.
+Added the three exact policy entries and a RED-first mutation test over each
+surface (3 failures before the fix, 6/6 green after). No runtime, lifecycle,
+support, README, or benchmark-number change.

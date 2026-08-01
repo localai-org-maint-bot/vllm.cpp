@@ -19,6 +19,7 @@ PUBLIC_CHECKPOINTS = ("docs/STATUS.md", "docs/BENCHMARKS.md")
 CHECKPOINT_PREFIXES = (
     ".agents/completed/",
     ".agents/specs/",
+    ".agents/sync/",
     ".github/workflows/",
     "cmake/",
     "examples/",
@@ -33,6 +34,7 @@ CHECKPOINT_FILES = {
     ".agents/backend-matrix.md",
     ".agents/coordination.md",
     ".agents/engine-matrix.md",
+    ".agents/environment.md",
     ".agents/feature-matrix.md",
     ".agents/kernel-matrix.md",
     ".agents/model-matrix.md",
@@ -40,6 +42,7 @@ CHECKPOINT_FILES = {
     ".agents/porting-inventory.md",
     ".agents/quantization-matrix.md",
     ".agents/roadmap_v1.md",
+    ".agents/sglang-matrix.md",
     ".agents/state.md",
 }
 

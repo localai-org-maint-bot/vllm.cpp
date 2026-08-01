@@ -1,5 +1,12 @@
 # Benchmarks
 
+## Documentation checkpoint coverage (2026-08-01) - NOT APPLICABLE
+
+The documentation gate now covers the canonical SGLang matrix, environment
+registry, and upstream-sync reports. This is a Python CI-policy correction with
+mutation tests; it changes no runtime code, workload, latency, throughput, or
+memory behavior, so no benchmark is applicable.
+
 ## Laguna-S-2.1-NVFP4 decode — routed-MoE CastF32 fold (`VT_LAGUNA_TAIL_FUSED`), byte-exact, −39 nodes/step, wall-neutral (2026-08-03, `CLAIM-LAGUNA-TAIL-FUSED`)
 
 Continuation of the byte-exact node-count campaign (glue/preamble/addnorm/onecast) on the GB10 NVFP4 decode graph (`~/laguna-xs-nvfp4`, ids `2,785,9626,377,15360,395`, base env `VT_LAGUNA_RESIDENT_DECODE=1 VT_LAGUNA_MARLIN_MOE=1 VT_LAGUNA_DECODE_GRAPH=1`, origin/main `65f3cdc1`). A fresh `cuda_gpu_kern_sum --cuda-graph-trace=node` 20↔70 diff of the baseline ranked the remaining SMALL decode kernels; the biggest tail items are already folded (`RmsNormRow`+`AddAdd2RmsNorm` = the add_rms_norm forms, `FusedQkNormRope` = the preamble) or unfoldable (`SigmoidTopK`/router GEMV = cuBLAS-adjacent, `DecodeAttnGqaSplitG`/`DecodeAttnCombine` = attention compute, `MoeAlign`/`SiluAndMul`/`MoeCombine` = ported-Marlin pipeline). The one clean byte-exact node reduction left was the MoE-output `CastF32`.
