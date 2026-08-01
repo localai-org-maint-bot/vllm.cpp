@@ -2119,3 +2119,10 @@ _(Laguna decode KV+attention → shared-framework port, bf16-KV slice (2026-08-0
 
 <!-- decode/runtime framework-routing (2026-08-02) -->
 - **Decode/runtime framework-routing** — `GATING`. Third "MUST route through" seam codified (AGENTS.md) + CI-enforced (`check-runner-routing-consistency.py`, green: 27 models, 3 allowlisted). Landed: Laguna split-K attention + w13-fusion (82.7→83.2% of vLLM decode); shared `Qwen3DenseDecodeGraph` (5 registrations, GB10 token-exact 16/16); Qwen3VL + DeepSeek-V4 routed to on-device logits + runner entry. Pending: Laguna gate-up fold onto the shared MLP seam (allowlisted) + its full KV/attention port onto `AttnBlock` (the kernel-level residual to vLLM parity); CUDA re-gates for Qwen3VL/DS4 owed.
+
+## Repository-record integrity
+
+`ROAD-V1-A6` per-area lifecycle-summary enforcement is `SPIKE` under
+`CLAIM-RECORD-AREA-SUMMARY`. The accepted CPU-only design will make the agent
+record checker validate every named engine area, not only the grand total. The
+next gate is a RED-first mutation followed by the full Python checker suite.

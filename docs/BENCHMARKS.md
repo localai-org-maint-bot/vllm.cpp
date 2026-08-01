@@ -11230,3 +11230,9 @@ steady-state per-step / nsys decode tok/s (eager vs graphed) is OWED.
 
 <!-- framework-routing (2026-08-02) -->
 - Laguna-XS-2.1-NVFP4 decode (GB10, vs vLLM 42.46 tok/s): split-K + w13-fusion → 35.3 tok/s (83.2%). Residual is GPU-kernel work inside the graph (measured). PENDING: full KV/attention framework port. Qwen3DenseDecodeGraph ~4.3% e2e (directional; rigorous per-step tok/s OWED). Qwen3VL/DS4 routing = framework-conformance (no speed claim); CUDA re-gate OWED.
+
+## Repository-record integrity
+
+| Checkpoint | Disposition | Reproduction |
+|---|---|---|
+| `ROAD-V1-A6` per-area lifecycle-summary enforcement (`CLAIM-RECORD-AREA-SUMMARY`) | **NOT APPLICABLE.** CPU-only checker spike; no runtime, model, kernel, latency, throughput, or memory path changes. `benchmark_binding=false`. | Pending implementation gate: `python3 tests/scripts/test_agent_record.py` and `python3 scripts/check-agent-record.py`. |

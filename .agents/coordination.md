@@ -132,6 +132,21 @@ leaves. Owns only NEW `.agents/specs/cli-chat-complete.md`, the
 fixture, or GPU/model-download change; verification is the CPU record/doc
 checker suite. The row and open-PR list were unclaimed at selection time.
 
+**Per-area lifecycle-summary integrity (`ROAD-V1-A6`, 2026-08-01,
+`CLAIM-RECORD-AREA-SUMMARY`).** Codex (GPT-5), isolated worktree
+`/home/mudler/_git/vllm.cpp.wt/codex-cpu-20260801`, branch
+`codex/road-v1-a6-area-summary-integrity`, base `upstream/main` `1448e981`.
+CPU-only governance improvement: `check-agent-record.py` currently validates
+only the engine matrix's grand-total lifecycle summary, allowing any named
+area row to drift while the total remains correct. Owns only NEW
+`.agents/specs/agent-record-area-summary-integrity.md`, the area-summary parser
+and mutation case in `scripts/check-agent-record.py` and
+`tests/scripts/test_agent_record.py`, this claim, the compact `ROAD-V1-A6`
+checkpoint, `docs/STATUS.md`, `docs/BENCHMARKS.md`, `.agents/parity-ledger.md`,
+and append-only `.agents/state.md`. No C/C++, build, runtime, model, kernel,
+README, generated fixture, GPU, or benchmark behavior changes; verification is
+the Python mutation suite plus all record/document checkers.
+
 **Canonical DONE-owner reachability repair (`KV-PREFIX-CACHE`,
 `SAMPLE-LOGPROBS`, `SPEC-DFLASH`,
 `MODEL-SPEC-qwen3-dflash-dflash-qwen3-for-causal-lm`,
