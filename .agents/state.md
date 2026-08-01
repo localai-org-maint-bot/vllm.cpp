@@ -34505,3 +34505,19 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 - ENG-PREEMPT-RECOMPUTE W0 spike
+
+`CLAIM-ENG-PREEMPT-RECOMPUTE-SPIKE`, isolated worktree
+`/home/mudler/.cache/codex-vllm-cpp-eng-preempt-spike`, branch
+`codex/eng-preempt-recompute-spike`, base `upstream/main` `1448e981`.
+Accepted `.agents/specs/preemption.md` and moved the existing bounded scheduler
+row from `ANCHOR-BACKFILL` to `SPIKE`, without changing executable files or a
+support claim. The source audit confirmed FCFS/priority KV-pressure victim
+selection, KV free, computed-progress reset, front retry, events/reset ids, and
+MRV2 resumed-as-new output. It also found concrete closure gaps: stale
+`spec_token_ids` are not cleared, prefix-cache on/off recomputation and sampled-
+output preservation lack focused parity cases, and encoder-cache/in-flight
+cleanup waits on the encoder scheduler surface. Resume with W1: port the
+missing upstream test tail, add a RED spec-token case, then implement the
+one-line cleanup and run the focused CPU scheduler/request-queue gates.

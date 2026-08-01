@@ -31,6 +31,14 @@ citing "vLLM 0.25.0" are the last binding measurement against the prior oracle
 
 ## Capability status
 
+Scheduler recompute preemption (2026-08-01,
+`CLAIM-ENG-PREEMPT-RECOMPUTE-SPIKE`) is `SPIKE`, with no support-state change.
+The existing CPU path covers KV-pressure victim selection, KV release, reset,
+front-of-queue retry, metrics, and MRV2 resume. The accepted
+[spike](../.agents/specs/preemption.md) identifies the current closure gaps:
+stale speculative-token cleanup, prefix-cache on/off recomputation coverage,
+and encoder-cache/in-flight cleanup after the encoder scheduler surface lands.
+
 GCC 12 production-library maintenance (2026-07-31): the two known `-Werror`
 blockers in GGUF prefaulting and KV-offload temporary-file naming are fixed
 without behavior or lifecycle changes. The production library and focused
