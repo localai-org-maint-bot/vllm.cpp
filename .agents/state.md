@@ -34505,3 +34505,13 @@ The required Slack selection notification was attempted through the bundled
 secret-safe sender to the only conventional target available, `#general`, but
 Slack returned `channel_not_found`. No channel ID/name is configured and no
 credential was inspected or exposed.
+
+## 2026-08-01 — `ROAD-V1-A6` per-commit CI cancellation spike
+
+`CLAIM-ROAD-V1-A6-CI-PER-COMMIT` selected an unclaimed CPU-only governance bug.
+The documentation and commit-protocol jobs each validate one push's unique
+`before..sha` range but are grouped by ref with cancellation enabled, so a later
+main push can permanently suppress the earlier range. The accepted spec limits
+the fix to removing those two job-level cancellation blocks and adding a
+mutation-tested static invariant. No implementation, runtime, lifecycle, GPU,
+model, or benchmark change is claimed at this checkpoint.

@@ -132,6 +132,25 @@ leaves. Owns only NEW `.agents/specs/cli-chat-complete.md`, the
 fixture, or GPU/model-download change; verification is the CPU record/doc
 checker suite. The row and open-PR list were unclaimed at selection time.
 
+**Per-commit CI gate cancellation repair (`ROAD-V1-A6`, 2026-08-01,
+`CLAIM-ROAD-V1-A6-CI-PER-COMMIT`).** Codex (GPT-5), isolated worktree
+`.worktrees/road-v1-a6-ci-per-commit`, branch
+`codex/road-v1-a6-ci-per-commit`, base `upstream/main` `1448e981`. CPU-only CI
+governance bugfix: the `documentation-checkpoint` and `commit-protocol-tag`
+jobs say their push ranges must never be cancelled, but both currently set
+job-level `cancel-in-progress: true`; a later `main` push can therefore cancel
+the only run covering the earlier push's `before..sha` range. Owns only
+`.github/workflows/ci.yml`, NEW
+`tests/scripts/test_ci_per_commit_gates.py`, NEW
+`.agents/specs/ci-per-commit-gates.md`, this claim, the `ROAD-V1-A6` roadmap
+checkpoint text, NEW
+`docs/superpowers/plans/2026-08-01-ci-per-commit-gates.md`,
+`docs/STATUS.md`, `docs/BENCHMARKS.md`,
+`.agents/parity-ledger.md`, and append-only `.agents/state.md`. No C/C++, build,
+runtime, model, kernel, fixture, README, lifecycle, support, or benchmark change;
+verification is the CPU Python mutation test plus all record/document checkers.
+No GPU, model download, compiler, external host, or parallel agent is required.
+
 **Canonical DONE-owner reachability repair (`KV-PREFIX-CACHE`,
 `SAMPLE-LOGPROBS`, `SPEC-DFLASH`,
 `MODEL-SPEC-qwen3-dflash-dflash-qwen3-for-causal-lm`,

@@ -42,6 +42,12 @@ Two byte-exact fronts on the GB10 NVFP4 decode graph (`~/laguna-xs-nvfp4`, ids `
 
 The 78 removed casts are ~78 µs/step — BELOW the ~0.3 ms nsys run-to-run noise (the dominant `enable_if` projection GEMV drifts ±0.4–0.7% between runs), so GPU-busy reads at parity; the win is the deterministic node-count drop (fewer graph nodes → less ramp/drain the CUDA graph doesn't hide), reflected as a neutral-to-+0.29% `decode_hp`. Lands default-ON on the same "shrink the captured node count, byte-exact" basis as the glue/preamble/addnorm folds (`=0` is a same-binary A/B opt-out). The remaining decode tail (projection GEMV ~55%, lm_head 7.4%, we-win Marlin MoE ~12%) is at/beyond parity; the load-time Marlin repack (`TransposeToInt32`/`gptq_marlin_repack`/`ProcessScales`, 20046 inst) is a one-time cost, correctly zeroed by the 2-length diff (the nsys-aggregate trap).
 
+## CI per-commit gate spike (2026-08-01, `CLAIM-ROAD-V1-A6-CI-PER-COMMIT`) - NOT APPLICABLE
+
+This records-only spike changes no runtime or performance path
+(`benchmark_binding=false`). The next reproduction is
+`python3 tests/scripts/test_ci_per_commit_gates.py`.
+
 ## GCC 12 production-library portability (2026-07-31, `CLAIM-CPU-GCC12-WERROR-PORTABILITY`) - NOT APPLICABLE / all-target build PARTIAL
 
 This maintenance checkpoint changes no runtime algorithm or benchmark axis.
