@@ -831,6 +831,11 @@ if(VLLM_CPP_METAL)
     endif()
     target_compile_definitions(vllm PUBLIC VLLM_CPP_MLX)
     target_sources(vllm PRIVATE src/vt/metal/metal_mlx_provider.mm)
+    # MLX 0.29.x headers use GNU-folding expressions that AppleClang diagnoses.
+    # Keep that diagnostic visible, but do not let this one external-header
+    # warning fail the provider TU when vllm_cpp_set_warnings adds -Werror.
+    set_source_files_properties(src/vt/metal/metal_mlx_provider.mm PROPERTIES
+      COMPILE_OPTIONS "$<$<COMPILE_LANG_AND_ID:OBJCXX,AppleClang>:-Wno-error=gnu-folding-constant>")
     # SYSTEM so MLX's own headers cannot break our -Werror build.
     target_include_directories(vllm SYSTEM PRIVATE "${MLX_ROOT}/include")
     target_link_libraries(vllm PUBLIC ${MLX_LIBRARY})
