@@ -2125,3 +2125,7 @@ _(Laguna decode KV+attention → shared-framework port, bf16-KV slice (2026-08-0
 used by every call site, so non-CUDA AppleClang builds do not emit
 `-Wunused-function` under `-Werror`. A static regression gate enforces that
 boundary; runtime behavior and Laguna's lifecycle state are unchanged.
+The next consumer run exposed a separate Voxtral portability error: its
+GCC-only `-Wstringop-overflow` suppression is now guarded out of Clang builds,
+where the unknown warning name was itself fatal under `-Werror`. The Go
+`go-m1cpu` folding diagnostics in that run were nonfatal and outside this repo.

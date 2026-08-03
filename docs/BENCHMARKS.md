@@ -11237,3 +11237,8 @@ steady-state per-step / nsys decode tok/s (eager vs graphed) is OWED.
   runtime path, model output, memory use, or performance. The binding evidence
   is the AppleClang 21 `-Werror,-Wunused-function` consumer failure plus the
   source-invariant regression gate; no speed measurement is owed.
+- **Darwin Voxtral pragma repair: NOT APPLICABLE to benchmarks.** Restricting a
+  GCC false-positive suppression to GCC changes no runtime path or generated
+  code. The binding evidence is the AppleClang `-Werror,-Wunknown-warning-option`
+  consumer failure and the compiler-boundary regression gate; no speed number
+  is owed.
