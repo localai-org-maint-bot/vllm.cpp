@@ -13,8 +13,8 @@
 
 <p align="center">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/License-Apache_2.0-blue"></a>
-  <a href="docs/BENCHMARKS.md"><img alt="vs vLLM" src="https://img.shields.io/badge/Qwen3.6--27B_vs_vLLM-token--exact_%2B_same_throughput-3ec8e0"></a>
-  <a href="docs/STATUS.md"><img alt="Architectures" src="https://img.shields.io/badge/architectures-25%2B_gated-7ee787"></a>
+  <a href="docs/BENCHMARKS.md"><img alt="Qwen3.6-27B unsloth 890bdef7 vs vLLM" src="https://img.shields.io/badge/Qwen3.6--27B_unsloth_890bdef7-token--exact_%2B_same_throughput-3ec8e0"></a>
+  <a href="docs/STATUS.md"><img alt="Architectures: 35 registered, 27 correctness-gated" src="https://img.shields.io/badge/architectures-35_registered_%7C_27_correctness--gated-7ee787"></a>
   <a href="#performance"><img alt="Binary size" src="https://img.shields.io/badge/one_binary-66_MiB,_no_Python-6e7681"></a>
   <a href="https://github.com/mudler/LocalAI"><img alt="LocalAI" src="https://img.shields.io/badge/LocalAI-Run_Locally-orange"></a>
 </p>
