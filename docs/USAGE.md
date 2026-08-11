@@ -423,6 +423,8 @@ Registered in
 |---|---|---|
 | POST | `/v1/completions` | Text completion (JSON or `text/event-stream`) |
 | POST | `/v1/chat/completions` | Chat completion (JSON or streaming SSE) |
+| POST | `/v1/embeddings` | Embeddings, registered only when the loaded engine has an embedding handler; otherwise absent (404) |
+| POST | `/v1/audio/transcriptions` | Multipart audio transcription, registered only when the loaded engine has a transcription handler; otherwise absent (404) |
 | GET | `/v1/models` | List the served model |
 | GET | `/health` | Process liveness (200) |
 | GET, POST | `/ping` | Liveness probe (200, mirrors `/health`) |
@@ -808,8 +810,10 @@ that invokes `ffmpeg`, path configurable with `--video-ffmpeg`).
 ## Consuming it as a library (C ABI)
 
 Link `libvllm` (static or shared) and include [`include/vllm.h`](../include/vllm.h).
-It exposes a flat, exception-free, llama.cpp-style C ABI (`VLLM_ABI_VERSION 10`,
-19 exported symbols) suitable for `dlopen` / FFI / LocalAI integration.
+It exposes a flat, exception-free, llama.cpp-style C ABI (`VLLM_ABI_VERSION 17`)
+suitable for `dlopen` / FFI / LocalAI integration. The header is the current
+symbol and ownership contract; use `vllm_abi_version()` to check the loaded
+library at runtime.
 
 ```c
 #include "vllm.h"
@@ -848,6 +852,13 @@ concurrent requests, memory helpers, and diagnostics. Later ABI versions add:
 | v8 | Custom logits processors |
 | v9 | Engine sizing: chunked-prefill token budget, scheduling policy, external KV connector / LMCache |
 | v10 | Jump-forward decoding (tri-state, default off) |
+| v11 | Audio transcription engines, parameters, results, and task-aware dispatch |
+| v12 | Video and audio generation engine, results, and mux argument helpers |
+| v13 | Completion from pre-tokenized prompts with generated token ids |
+| v14 | Explicit text-engine device selection (`auto`, CPU, or CUDA) |
+| v15 | Embedding entry points and task-aware pooling dispatch |
+| v16 | Absolute KV-cache sizing and GPU-memory-utilization fields |
+| v17 | `vllm_server_main`, the OpenAI server entry point on the public ABI |
 
 Chat templates render through the vendored google/minja engine, the same
 renderer llama.cpp ships.

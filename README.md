@@ -7,8 +7,8 @@
 </p>
 
 <p align="center">
-  <b>Same tokens as vLLM. Same throughput. 140x less to install.</b><br>
-  <sub>Continuous batching, paged KV, 25+ architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
+  <b>Same tokens as vLLM. Checkpoint-scoped speed. 140x less to install.</b><br>
+  <sub>Continuous batching, paged KV, 35 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
 </p>
 
 <p align="center">
@@ -57,8 +57,8 @@ scheduling ideas (RadixAttention, LPM cache-aware admission, jump-forward decodi
 ABI, GGUF straight off the shelf, and compute directly on the quantized blocks). MLX's GEMM where it
 wins on Apple Silicon. Safetensors and GGUF, CUDA and CPU and Metal and Vulkan, from one source tree.
 
-Every architecture is gated **token-for-token against vLLM** on the same workload. Speed claims use
-the reference engine's production configuration.
+The registry has **35 architectures**; **27 have a passing correctness gate**. Scaffolds and
+oracle-blocked rows stay labelled, and speed claims name their checkpoint and workload.
 
 ![vllm.cpp vs vLLM on Qwen3.6-27B: identical output at every concurrency](benchmarks/media/concurrency_race.gif)
 
@@ -71,23 +71,21 @@ Where that stands today:
 - **Small.** **66 MiB** of binary against a **9.1 GiB** vLLM install, both measured on the same GB10:
   about **140x less to deploy**, serving the same model in **24.88 GiB of peak host memory against
   vLLM's 28.18**. No interpreter in the process, and 0 bytes of bundled CUDA userspace.
-- **Fast.** On Qwen3.6-27B we **match vLLM's throughput** against its graphed production config.
-  We are ahead at all six concurrencies we measured, but only **c1 (4.5%)** is outside our noise
-  band; the other five, 0.7% to 1.7%, are ties. Also **1.18x llama.cpp's prefill** on the same
-  GGUF file, and **ahead of MLX-LM on prefill** on Apple Silicon. Most other architectures are
-  correct but speed-pending, and each one says so.
-- **Everything.** 25+ architectures, tool calling (36 parser families), structured output including
+- **Fast.** The Qwen3.6-27B NVFP4 `unsloth` checkpoint at `890bdef7` matches graphed vLLM throughput.
+  Only the **c1 4.5% lead** clears noise; c2 to c32 are ties. NVIDIA ModelOpt 27B and current 35B-A3B
+  grids remain speed-pending. We also measure **1.18x llama.cpp prefill** on the same GGUF and lead
+  MLX-LM on Apple prefill.
+- **Everything.** 35 registered architectures, tool calling (36 parser families), structured output including
   GBNF, three speculative decoders, image and video and audio input, external KV offload, Prometheus
   metrics, and the SGLang knobs, all in a library you can `dlopen`.
-- **Grounded.** Every architecture is **gated token-for-token against a pinned vLLM oracle**, and
-  where vLLM's own greedy decode is non-deterministic at bf16 near-ties, the gate says so instead of
-  quietly loosening.
+- **Grounded.** 27 registered architectures pass a pinned-vLLM correctness gate. Ratified near-tie,
+  scaffold, and oracle-blocked rows say so instead of becoming broader support claims.
 
 ## Performance
 
-Qwen3.6-27B (NVFP4) on NVIDIA GB10, greedy, closed loop, against the vLLM oracle in its
-**production graphed config** (not `--enforce-eager`). Output is token-for-token identical at every
-point on this curve:
+Qwen3.6-27B NVFP4, `unsloth` checkpoint revision `890bdef7`, on NVIDIA GB10, greedy and closed loop,
+against the vLLM oracle in its **production graphed config** (not `--enforce-eager`). Output is
+token-for-token identical at every point on this curve:
 
 | Concurrency | 1 | 2 | 4 | 8 | 16 | 32 |
 |---|---|---|---|---|---|---|
@@ -98,6 +96,9 @@ point on this curve:
 We are ahead at all six, but only c1 at 4.5% is clearly outside our 0.5% run-to-run noise band, so
 treat c2 through c32 as ties. The tokens are identical either way, and the install is 66 MiB against
 9.1 GiB.
+
+This grid does not cover every Qwen3.6 checkpoint. NVIDIA ModelOpt 27B at `0893e160` and the current
+35B-A3B grid are correctness-gated but still speed-pending. See [BENCHMARKS](docs/BENCHMARKS.md).
 
 Cold start to first `/health`: **36.5 s vs vLLM's 221.5 s (6.1x)**, provisional
 ([detail](.agents/benchmark-record.md)).
@@ -151,9 +152,8 @@ Full per-axis grids, memory tables, the nine residual axes, and exact reproducti
 numbers by [`benchmarks/demo/`](benchmarks/demo/), which reads its values from a committed spec, so
 every figure traces back to the run that produced it.
 
-> **Pre-release, under heavy development.** Correctness is gated token-for-token against a pinned
-> vLLM oracle across 25+ architectures. Speed is proven on one GPU (NVIDIA GB10 / DGX Spark,
-> sm_121a) plus a CPU path that matches or beats llama.cpp on GGUF. Every capability is labelled
+> **Pre-release, under heavy development.** 35 architectures are registered and 27 correctness-gated.
+> Speed applies only to named checkpoints and workloads. Every capability is labelled
 > honestly in [docs/STATUS.md](docs/STATUS.md): *correctness-complete*, *speed-pending*,
 > *build-only*, or *hardware-blocked*.
 
@@ -166,7 +166,7 @@ cmake -S . -B build && cmake --build build -j
 
 ```sh
 # Serve an OpenAI-compatible endpoint
-build/examples/server --model /path/to/Qwen3.6-27B --port 8000 --max-num-seqs 32
+build/examples/vllm-server --model /path/to/Qwen3.6-27B --port 8000 --max-num-seqs 32
 ```
 
 ```sh
@@ -187,7 +187,7 @@ configs, token-for-token the same output. Switching to it should be boring. Ever
 you get on top, most of it borrowed from whichever engine does it best:
 
 - **One 66 MiB binary instead of a 9.1 GiB install.** A flat, exception-free, llama.cpp-style C ABI
-  ([`include/vllm.h`](include/vllm.h), 19 symbols) you can `dlopen` from C, C++, Go, or Rust. No
+  ([`include/vllm.h`](include/vllm.h), ABI v17) you can `dlopen` from C, C++, Go, or Rust. No
   Python interpreter in the process, ever.
 - **GGUF as a first-class citizen.** Load the same quantized files llama.cpp uses, and on CPU
   **compute directly on the compressed blocks** (Q4_0/Q8_0/Q3_K/Q4_K/Q5_K/Q6_K) with no BF16
@@ -237,24 +237,19 @@ Per-capability lifecycle state, active gaps, and the next gate for each:
 
 ## Supported models
 
-Every architecture below passes a token-for-token correctness gate against the pinned vLLM oracle on
-GB10. Where vLLM's own greedy is deterministic the bar is strict token-exact; where vLLM is
-self-inconsistent at bf16 near-ties, the bar is a near-tie-robust check. "Speed" is a separate bar
-(match or beat vLLM on every axis).
+The source registry has 35 architecture names, 27 with a passing correctness gate. The compact view
+below keeps scaffolds and oracle-blocked rows visible. "Speed" is a separate, every-axis bar.
 
-**Gate models:** Qwen3.6-27B and Qwen3.6-35B-A3B (hybrid GDN + MoE, NVFP4), both token-exact, the
-27B at or above vLLM throughput on every axis. **Also running:** Llama-3.x, Mistral, Qwen3/Qwen2
-dense and MoE, DeepSeek-V2 and V4-Flash (MLA), GLM-4 and GLM-4.7-Flash, Laguna-S/XS-2.1,
-Kimi-Linear-48B, Gemma-1 through Gemma-4, Phi-1 through Phi-4, OLMo-2, Granite-3, StableLM,
-InternLM2/3, MiniCPM and MiniCPM3, Yi, OPT, plus Qwen3-VL and Qwen3.6-27B vision (image + video)
-and Voxtral (audio).
+**Gate models:** Qwen3.6-27B and Qwen3.6-35B-A3B (GDN + MoE, NVFP4), both correctness-gated.
+`unsloth` 27B at `890bdef7` meets the speed floor; NVIDIA ModelOpt 27B and current 35B-A3B do not.
+The registry-bound checkpoint list is in [docs/FEATURES.md](docs/FEATURES.md).
 
 <details>
-<summary><b>The full architecture matrix</b> (28 rows, with per-model correctness and speed state)</summary>
+<summary><b>Compact architecture family view</b></summary>
 
 | Architecture | Example checkpoint | GGUF | Correctness | Speed |
 |---|---|:---:|---|---|
-| Qwen3.5/3.6 hybrid (GDN + MoE) | Qwen3.6-27B, Qwen3.6-35B-A3B | 35B only | Token-exact | 27B at/above vLLM; 35B prefill-pending |
+| Qwen3.5/3.6 hybrid (GDN + MoE) | Qwen3.6-27B, Qwen3.6-35B-A3B | 35B only | Token-exact | `unsloth` 27B @`890bdef7` at/above vLLM; ModelOpt 27B and current 35B grids speed-pending |
 | Qwen3 / Qwen2 dense | Qwen3-4B, Qwen3-32B | dense qwen35 | Token-exact (near-tie-robust) | Speed-pending |
 | Qwen3-MoE | Qwen3-Coder-30B-A3B | - | Token-exact (near-tie-robust) | Speed-pending |
 | Llama-3.x dense | Llama-3.2-1B | - | Token-exact (near-tie-robust) | Speed-pending |
@@ -365,7 +360,7 @@ tokenizer). For SPEECH put the spoken line in the prompt. Recipe: [docs/USAGE.md
 ## OpenAI-compatible server
 
 ```sh
-build/examples/server --model /path/to/Qwen3.6-27B --port 8000 --max-num-seqs 32
+build/examples/vllm-server --model /path/to/Qwen3.6-27B --port 8000 --max-num-seqs 32
 ```
 
 ```python
@@ -386,7 +381,7 @@ behind a model gallery, multi-model serving, the full OpenAI API surface, auth, 
 ## Use it as a library (C API)
 
 Link `libvllm` and include [`include/vllm.h`](include/vllm.h): a flat, exception-free,
-llama.cpp-style C ABI (`VLLM_ABI_VERSION 10`, 19 exported symbols) suitable for `dlopen` / FFI.
+llama.cpp-style C ABI (`VLLM_ABI_VERSION 17`) suitable for `dlopen` / FFI.
 
 ```c
 vllm_model_params mp = vllm_model_params_default();
@@ -458,8 +453,8 @@ from:
 
 - **[vLLM](https://github.com/vllm-project/vllm)** is the reference this project is measured against
   and the origin of the serving core: continuous batching, block-paged KV, the V1 scheduler, sampling
-  order, speculative decoding. It is also the oracle: every architecture here has to emit the same
-  tokens vLLM does before it counts as working.
+  order, speculative decoding. It is also the oracle: an architecture counts as correctness-gated
+  only after it passes its strict or ratified near-tie comparison.
 - **[SGLang](https://github.com/sgl-project/sglang)** contributed serving ideas nobody else ships,
   which we carry as documented toggles: RadixAttention, LPM cache-aware scheduling, and jump-forward
   decoding ([docs/SGLANG-COMPAT.md](docs/SGLANG-COMPAT.md)).

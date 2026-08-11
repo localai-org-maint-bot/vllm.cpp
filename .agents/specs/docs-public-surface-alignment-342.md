@@ -75,4 +75,8 @@ reported only if unchanged; they do not expand this row.
 
 ## Outcome
 
-Pending implementation and verification.
+README and `docs/USAGE.md` now use the shipped `vllm-server` path, ABI v17,
+conditional embedding and transcription routes, registry/gate-qualified model
+counts, and checkpoint-scoped performance wording. No benchmark value or
+lifecycle state changed. Verification evidence is carried by the implementation
+commit and its handoff report.
