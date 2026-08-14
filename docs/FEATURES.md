@@ -194,7 +194,7 @@ on the committed fixture); reranking/classify models are not yet registered.
 | Video | ✅ correctness-gated | ✅ | ✅ | ☐ |
 | Audio | ✅ correctness-gated | ✅ | ◐ | ◐ |
 | Video+audio GENERATION (MiniMax-H3 DiT, LTX-2.5 DiT) | ◐ H3: all three modalities COHERENT on Q4_K_M (t2va, fl2va, ref2va; §8.20); the NVFP4 arm carries the patch grid; GGUF/NVFP4/bf16 loaders, pruned too (§8.21). LTX-2.5: a second lane, `SPIKE`, gated at reduced dims | ✅ H3 (vllm-omni, BF16-only, no quantized arm); LTX-2.5 only through the generic diffusers adapter, no native recipe ([vllm-omni#6066](https://github.com/vllm-project/vllm-omni/issues/6066)) | ☐ | ☐ |
-| Speech / audio GENERATION (TTS, vLLM-Omni lane) | ☐ not started. Eight architectures inventoried in `.agents/model-matrix.md`: six from the recipes sweep (#610) plus IndexTTS-2.5 (#634). Inventoried is not supported; all block on the absent `vllm-omni` pin (#633) | ✅ (vllm-omni: MOSS-TTS, Qwen3-TTS, Higgs Audio v3, Voxtral TTS, IndexTTS-2.5) | not assessed | not assessed |
+| Speech / audio GENERATION (TTS, vLLM-Omni lane) | ◐ IndexTTS-2.5 foundations only: speech seam, GPT-2, BigVGAN, partial CAMPPlus. Load refuses because the remaining stages, routes, and C ABI are absent. No model synthesizes audio (#633, #634) | ✅ (vllm-omni: MOSS-TTS, Qwen3-TTS, Higgs Audio v3, Voxtral TTS, IndexTTS-2.5) | not assessed | not assessed |
 | MUSIC generation (MiniMax-Music3) | ☐ scoped, not started ([spec](../.agents/specs/minimax-music3.md), #672). Lyrics plus a structured description in, a multi-minute stereo song out | ☐ absent from the pin, from vLLM `main` and from `vllm-omni` alike | ◐ served by SGLang-Omni, a third repository, which loads the NATIVE checkpoint layout | ☐ |
 | Multimodal over the OpenAI server | ◐ image request path wired, forward pending | ✅ | ✅ | ◐ |
 
@@ -203,9 +203,8 @@ API the image **request** path is wired end to end (`ROAD-V1-MM` W1-W3): the
 production server attaches the seam at `server_main.cpp:826`. Two residuals keep
 it from ✅: the model runner has no mm-forward consuming `Request.mm_features`,
 and no image codec is vendored (raw RGB only). Video, audio and multi-image over
-HTTP are not started. Audio **in** is gated; audio **out** does not exist: we
-ship no TTS or speech-generation path on any surface, which is why that row is
-the only ☐ in our column here.
+HTTP are not started. Audio **in** is gated. The TTS lane has reusable components
+and a family seam, but no loadable model, synthesis path, route, or C ABI.
 
 ## Speculative decoding
 

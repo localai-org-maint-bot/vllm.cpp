@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>Same tokens as vLLM. Same throughput. 140x less to install.</b><br>
-  <sub>Continuous batching, paged KV, 37 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
+  <sub>Continuous batching, paged KV, 38 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
 </p>
 
 <p align="center">
@@ -78,7 +78,7 @@ Where that stands today:
   band; the other five, 0.7% to 1.7%, are ties. Also **1.18x llama.cpp's prefill** on the same
   GGUF file, and **ahead of MLX-LM on prefill** on Apple Silicon. Most other architectures are
   correct but speed-pending, and each one says so.
-- **Everything.** 37 registered architectures, 36 tool-parser families, structured output including
+- **Everything.** 38 registered architectures, 37 tool-parser families, structured output including
   GBNF, three speculative decoders, image and video and audio input, external KV offload, Prometheus
   metrics, and the SGLang knobs, all in a library you can `dlopen`.
 
@@ -216,7 +216,7 @@ you get on top, most of it borrowed from whichever engine does it best:
   sample logprobs.
 - **Structured output.** JSON schema, JSON object, regex, choice, and GBNF grammar, enforced in the
   engine with a per-step logits bitmask.
-- **Tool calling and reasoning.** 36 tool-parser families (40 accepted names) and 12 reasoning
+- **Tool calling and reasoning.** 37 tool-parser families (41 accepted names) and 12 reasoning
   parser names, streaming, selectable with `--tool-call-parser` / `--reasoning-parser`. Chat templates
   render through the vendored google/minja engine, the same renderer llama.cpp ships.
 - **Multimodal.** Image, video, and audio to text, correctness-complete. Image chat requests are
@@ -249,7 +249,7 @@ InternLM2/3, MiniCPM and MiniCPM3, Yi, OPT, plus Qwen3-VL and Qwen3.6-27B vision
 and Voxtral (audio).
 
 <details>
-<summary><b>The full architecture matrix</b> (37 registered architectures grouped by family)</summary>
+<summary><b>The full architecture matrix</b> (38 registered architectures grouped by family)</summary>
 
 | Architecture | Example checkpoint | GGUF | Correctness | Speed |
 |---|---|:---:|---|---|
@@ -292,7 +292,7 @@ sampler, no logits); upstream is `vllm-project/vllm-omni`. Five conditioning mod
 Compressed-tensors NVFP4A16 (W4A16) dense weights also load and compute natively
 (RedHatAI/Qwen3-32B-NVFP4A16). Long-context RoPE (YaRN, Llama-3, LongRoPE, dynamic-NTK) and
 sliding-window attention are gated feature-positive. The authoritative per-architecture list, bound
-to the C++ registry (all 37 registered architectures with their tested checkpoint and gate, plus the
+to the C++ registry (all 38 registered architectures with their tested checkpoint and gate, plus the
 standalone audio/diffusion lanes and the inventoried-but-blocked archs), is in
 [docs/FEATURES.md](docs/FEATURES.md); family-by-family lifecycle detail, including what is
 hardware-blocked and why, is in [docs/STATUS.md](docs/STATUS.md).
