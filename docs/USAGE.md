@@ -1158,13 +1158,10 @@ It asserts STRUCTURE, not quality: nothing is compared against vLLM-Omni, which
 is unpinned (#633). The TOKENIZER it uses:
 `tiktoken::LoadRanks` reads the shipped `.tiktoken` vocabulary and
 `tiktoken::Encode` reproduces python tiktoken's ids exactly on the cases
-gated, CJK included. The checkpoint now
-LOADS through `vllm::multimodal::SpeechRegistry`, reports its family and its
-22.05 kHz output rate, and states that a reference clip is required; asking
-it to synthesize refuses by naming the one gap between text and the render
-path, which is that the shipped vocabulary is tiktoken and this tree has no
-reader for one. The pipeline itself renders on the real
-checkpoints: the talker emits its own mel codes, the length regulator resamples
+gated, CJK included. The checkpoint loads through
+`vllm::multimodal::SpeechRegistry`, reports its family and its 22.05 kHz output
+rate, and states that a reference clip is required. The pipeline renders on the
+real checkpoints: the talker emits its own mel codes, the length regulator resamples
 them to the mel frame rate, a classifier-free guided CFM Euler loop integrates
 the S2Mel estimator, and BigVGAN turns the mel into a bounded 22.05 kHz
 waveform. `indextts2::Render` is the entry point, and
@@ -1173,13 +1170,11 @@ environment variables are set. It is NOT yet measured against the vLLM-Omni
 oracle, which is unpinned (#633), so nothing here is a quality claim. Inferring the emotion from a clip instead of stating it needs a
 Conformer and a Perceiver that are not ported.
 
-There is **no `/v1/audio/speech`**. Text to speech is not servable: the
-IndexTTS-2.5 stages are ported and gated at reduced dimensions, with further
-stages named as missing by the checkpoint's own manifest, and no route is
-registered, the public ABI carries no synthesis entry point, and loading the
-family refuses with a message naming the missing pieces (#634). Asking a running server for speech
-today is a 404 at the route table, not a runtime error, and that is the accurate
-signal: the capability does not reach any surface yet.
+IndexTTS-2.5 is available through `vllm_synthesize` and `/v1/audio/speech` when
+the server starts with `--speech-model`. The request must include
+`reference_audio`, but the current pipeline ignores that clip. Two different
+reference voices therefore produce the same output. CAMPPlus returns NaN on
+the real weights, so reference-voice conditioning remains open (#634).
 
 `prompt_logprobs` is accepted on `/v1/completions` and `/v1/chat/completions`
 and the engine computes it — every prompt position is scored against the token
@@ -1263,8 +1258,8 @@ reaches all of them: the 8.6B `Qwen3ForCausalLM` autoregressive stage, the RVQ
 depth decoder, the learned condition mix, the flow-matching DiT and the DAC
 Flow-VAE vocoder. **A composed request has not yet been observed to completion
 on CPU** — see the caveat below, and `.agents/specs/minimax-music3.md`. There is
-no by-name refusal left: nothing here is unimplemented. IndexTTS-2.5 still
-refuses naming its own missing pieces.
+no by-name refusal left in the Music3 pipeline. IndexTTS-2.5 renders, with the
+reference-voice limitation described above.
 
 **It runs on CPU and it is slow.** Every gate this row has was taken on CPU
 (`dgx.casa` was down throughout), and the acoustic half is upstream's own fp32.
@@ -2627,7 +2622,7 @@ quantized arm (0.0324), so upper bounds alone cannot tell them apart.
 
 ### IndexTTS-2.5 goldens and checkpoint manifests
 
-The speech lane is not servable yet (see `/v1/audio/speech` above); these
+The speech lane is available through `/v1/audio/speech`; these commands
 regenerate its gates. `read-torch-manifest.py` reads a torch `.pth`'s tensor
 names and shapes from its pickle header over HTTP range requests, so it inspects
 a multi-GB checkpoint without downloading the weights:

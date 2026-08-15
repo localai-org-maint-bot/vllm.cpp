@@ -206,8 +206,9 @@ production server attaches the seam at `server_main.cpp:826`. Two residuals keep
 it from ✅: the model runner has no mm-forward consuming `Request.mm_features`,
 and no image codec is vendored (raw RGB only). Video, audio and multi-image over
 HTTP are not started. Audio **in** is gated. Audio **out** has a surface now
-(`/v1/audio/speech`, `vllm_speech_*` v20), but no family renders from a prompt:
-both refuse, naming what is missing.
+(`/v1/audio/speech`, `vllm_speech_*` v20). IndexTTS-2.5 renders from text, but
+currently ignores its required reference voice. MiniMax-Music3 has not completed
+a composed request yet.
 
 ## Speculative decoding
 

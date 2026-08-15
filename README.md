@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>Same tokens as vLLM. Same throughput. 140x less to install.</b><br>
-  <sub>Continuous batching, paged KV, 37 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
+  <sub>Continuous batching, paged KV, 38 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
 </p>
 
 <p align="center">
@@ -37,6 +37,8 @@
 
 ## News
 
+- **2026-08** **Speech generation reaches the API.** MiniMax-Music3 and IndexTTS-2.5 now use
+  `POST /v1/audio/speech`; both remain [partial](docs/STATUS.md).
 - **2026-08** **v0.0.2 ships eight server archives.** Download CPU, CUDA, Vulkan, Metal, and MLX
   builds from [GitHub Releases](https://github.com/mudler/vllm.cpp/releases/tag/v0.0.2).
 - **2026-08** **MiniMax-H3 generates video with audio.** All tasks run through `POST /v1/videos`;
@@ -78,9 +80,8 @@ Where that stands today:
   band; the other five, 0.7% to 1.7%, are ties. Also **1.18x llama.cpp's prefill** on the same
   GGUF file, and **ahead of MLX-LM on prefill** on Apple Silicon. Most other architectures are
   correct but speed-pending, and each one says so.
-- **Everything.** 37 registered architectures, 36 tool-parser families, structured output including
-  GBNF, three speculative decoders, image and video and audio input, external KV offload, Prometheus
-  metrics, and the SGLang knobs, all in a library you can `dlopen`.
+- **Everything.** 38 architectures, 36 tool-parser families, GBNF, three speculative decoders,
+  multimodal input, speech and music output, external KV, Prometheus, and SGLang scheduling knobs.
 
 ## Performance
 
@@ -186,7 +187,7 @@ configs, token-for-token the same output. Switching to it should be boring. Ever
 you get on top, most of it borrowed from whichever engine does it best:
 
 - **One 66 MiB binary instead of a 9.1 GiB install.** A flat, exception-free, llama.cpp-style C ABI
-  ([`include/vllm.h`](include/vllm.h), ABI v19, 36 functions) for C, C++, Go, or Rust. No Python
+  ([`include/vllm.h`](include/vllm.h), ABI v20, 45 functions) for C, C++, Go, or Rust. No Python
   interpreter in the process.
 - **GGUF as a first-class citizen.** Load the same quantized files llama.cpp uses, and on CPU
   **compute directly on the compressed blocks** (Q4_0/Q8_0/Q3_K/Q4_K/Q5_K/Q6_K) with no BF16
@@ -236,20 +237,19 @@ Per-capability lifecycle state, active gaps, and the next gate for each:
 
 ## Supported models
 
-Every architecture below passes a token-for-token correctness gate against the pinned vLLM oracle on
-GB10. Where vLLM's own greedy is deterministic the bar is strict token-exact; where vLLM is
-self-inconsistent at bf16 near-ties, the bar is a near-tie-robust check. "Speed" is a separate bar
-(match or beat vLLM on every axis).
+Registered text architectures use a correctness gate against the pinned vLLM oracle on GB10:
+strict token-exact where greedy output is deterministic, and near-tie-robust otherwise. Speed is a
+separate bar.
 
 **Gate models:** Qwen3.6-27B and Qwen3.6-35B-A3B (hybrid GDN + MoE, NVFP4), both token-exact, the
 27B at or above vLLM throughput on every axis. **Also running:** Llama-3.x, Mistral, Qwen3/Qwen2
 dense and MoE, DeepSeek-V2 and V4-Flash (MLA), GLM-4 and GLM-4.7-Flash, Laguna-S/XS-2.1,
 Kimi-Linear-48B, Gemma-1 through Gemma-4, Phi-1 through Phi-4, OLMo-2, Granite-3, StableLM,
-InternLM2/3, MiniCPM and MiniCPM3, Yi, OPT, plus Qwen3-VL and Qwen3.6-27B vision (image + video)
-and Voxtral (audio).
+InternLM2/3, MiniCPM and MiniCPM3, Yi, OPT, plus Qwen3-VL and Qwen3.6-27B vision (image + video),
+Voxtral (audio), IndexTTS-2.5 (speech), and MiniMax-Music3 (music).
 
 <details>
-<summary><b>The full architecture matrix</b> (37 registered architectures grouped by family)</summary>
+<summary><b>The full architecture matrix</b> (38 registered architectures grouped by family)</summary>
 
 | Architecture | Example checkpoint | GGUF | Correctness | Speed |
 |---|---|:---:|---|---|
@@ -292,7 +292,7 @@ sampler, no logits); upstream is `vllm-project/vllm-omni`. Five conditioning mod
 Compressed-tensors NVFP4A16 (W4A16) dense weights also load and compute natively
 (RedHatAI/Qwen3-32B-NVFP4A16). Long-context RoPE (YaRN, Llama-3, LongRoPE, dynamic-NTK) and
 sliding-window attention are gated feature-positive. The authoritative per-architecture list, bound
-to the C++ registry (all 37 registered architectures with their tested checkpoint and gate, plus the
+to the C++ registry (all 38 registered architectures with their tested checkpoint and gate, plus the
 standalone audio/diffusion lanes and the inventoried-but-blocked archs), is in
 [docs/FEATURES.md](docs/FEATURES.md); family-by-family lifecycle detail, including what is
 hardware-blocked and why, is in [docs/STATUS.md](docs/STATUS.md).
