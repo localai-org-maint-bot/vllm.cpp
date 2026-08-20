@@ -3372,6 +3372,9 @@ concurrent requests, memory helpers, and diagnostics. Later ABI versions add:
 | v16 | Absolute KV-cache memory sizing |
 | v17 | The OpenAI server as a thin ABI client through `vllm_server_main` |
 | v18 | Video model-family selection (`family`, `vllm_video_engine_family`) and family-specific `extra_keys`/`extra_values` on `vllm_video_*` |
+| v19 | Per-prompt multimodal limits and language-model-only mode |
+| v20 | Speech and music generation through `vllm_speech_*` |
+| v21 | Weight-offload configuration plus speech device selection and reporting |
 
 Chat templates render through the vendored google/minja engine, the same
 renderer llama.cpp ships.

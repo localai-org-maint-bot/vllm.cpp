@@ -12,7 +12,7 @@
 // The construction moved into the library verbatim
 // (src/vllm/entrypoints/openai/server_main.cpp, declared in
 // vllm/entrypoints/openai/server_main.h) and is published as `vllm_server_main`
-// at ABI v17. HTTP and FFI therefore cannot drift: the server the ABI runs IS
+// since ABI v17. HTTP and FFI therefore cannot drift: the server the ABI runs IS
 // the server this binary runs.
 //
 // Flag parsing lives in the library with the construction it feeds, because the

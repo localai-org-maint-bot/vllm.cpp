@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>Same tokens as vLLM. Same throughput. 140x less to install.</b><br>
-  <sub>Continuous batching, paged KV, 37 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
+  <sub>Continuous batching, paged KV, 40 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
 </p>
 
 <p align="center">
@@ -37,6 +37,8 @@
 
 ## News
 
+- **2026-08** **MiniMax-Music3 serves text-to-music.** The full pipeline is reachable through
+  `POST /v1/audio/speech` and gated on real weights. Reference performance is still pending.
 - **2026-08** **v0.0.2 ships eight server archives.** Download CPU, CUDA, Vulkan, Metal, and MLX
   builds from [GitHub Releases](https://github.com/mudler/vllm.cpp/releases/tag/v0.0.2).
 - **2026-08** **MiniMax-H3 generates video with audio.** All tasks run through `POST /v1/videos`;
@@ -59,7 +61,7 @@ scheduling ideas (RadixAttention, LPM cache-aware admission, jump-forward decodi
 ABI, GGUF straight off the shelf, and compute directly on the quantized blocks). MLX's GEMM where it
 wins on Apple Silicon. Safetensors and GGUF, CUDA and CPU and Metal and Vulkan, from one source tree.
 
-Every architecture is gated **token-for-token against vLLM** on the same workload. Speed claims use
+Every correctness claim is gated against its named reference on the same workload. Speed claims use
 the reference engine's production configuration.
 
 ![vllm.cpp vs vLLM on Qwen3.6-27B: identical output at every concurrency](benchmarks/media/concurrency_race.gif)
@@ -77,7 +79,7 @@ Where that stands today:
   ahead at all six concurrencies but only c1 outside our noise band. Also **1.18x llama.cpp's
   prefill** on the same GGUF file (denominator SUPERSEDED, see below), and **ahead of MLX-LM on
   prefill** on Apple Silicon. Most other architectures are speed-pending, and say so.
-- **Everything.** 37 registered architectures, 36 tool-parser families, structured output including
+- **Everything.** 40 registered architectures, 36 tool-parser families, structured output including
   GBNF, three speculative decoders, image and video and audio input, external KV offload, Prometheus
   metrics, and the SGLang knobs, all in a library you can `dlopen`.
 
@@ -187,7 +189,7 @@ configs, token-for-token the same output. Switching to it should be boring. Ever
 you get on top, most of it borrowed from whichever engine does it best:
 
 - **One 66 MiB binary instead of a 9.1 GiB install.** A flat, exception-free, llama.cpp-style C ABI
-  ([`include/vllm.h`](include/vllm.h), ABI v19, 36 functions) for C, C++, Go, or Rust. No Python
+  ([`include/vllm.h`](include/vllm.h), ABI v21, 46 functions) for C, C++, Go, or Rust. No Python
   interpreter in the process.
 - **GGUF as a first-class citizen.** Load the same quantized files llama.cpp uses, and on CPU
   **compute directly on the compressed blocks** (Q4_0/Q8_0/Q3_K/Q4_K/Q5_K/Q6_K) with no BF16
@@ -237,10 +239,9 @@ Per-capability lifecycle state, active gaps, and the next gate for each:
 
 ## Supported models
 
-Every architecture below passes a token-for-token correctness gate against the pinned vLLM oracle on
-GB10. Where vLLM's own greedy is deterministic the bar is strict token-exact; where vLLM is
-self-inconsistent at bf16 near-ties, the bar is a near-tie-robust check. "Speed" is a separate bar
-(match or beat vLLM on every axis).
+The table separates strict and near-tie correctness gates from registrations that are still blocked.
+Where vLLM's greedy output is deterministic, the bar is token-exact. Where bf16 near-ties make its
+own output inconsistent, the gate uses the documented near-tie check. Speed is a separate bar.
 
 **Gate models:** Qwen3.6-27B and Qwen3.6-35B-A3B (hybrid GDN + MoE, NVFP4), both token-exact, the
 27B at or above vLLM throughput on every axis. **Also running:** Llama-3.x, Mistral, Qwen3/Qwen2
@@ -250,7 +251,7 @@ InternLM2/3, MiniCPM and MiniCPM3, Yi, OPT, plus Qwen3-VL and Qwen3.6-27B vision
 and Voxtral (audio).
 
 <details>
-<summary><b>The full architecture matrix</b> (37 registered architectures grouped by family)</summary>
+<summary><b>The full architecture matrix</b> (40 registered architectures grouped by family)</summary>
 
 | Architecture | Example checkpoint | GGUF | Correctness | Speed |
 |---|---|:---:|---|---|
@@ -283,6 +284,7 @@ and Voxtral (audio).
 | Qwen3.6-27B vision (image + video) | Qwen3.6-27B | - | Strict token-exact 32/32 | Speed-pending |
 | Voxtral (audio) | Voxtral-Mini-3B-2507 | - | Near-tie-robust (decoder 48/48 exact) | Speed-pending |
 | **MiniMax-H3 (video + audio GENERATION)** | MiniMaxAI/MiniMax-H3 | Q4_K_M / NVFP4 | Renders 864x480 / 124f with audio | **34.6 s/step, one Jetson Thor** |
+| **MiniMax-Music3 (text-to-music)** | MiniMaxAI/MiniMax-Music3 | RVQ depth Q4_K | Every stage gated on real weights; HTTP path observed | Reference performance pending |
 
 **Video + audio GENERATION is supported**, not just video *input*. MiniMax-H3 renders end to
 end: prompt -> Qwen3-VL-32B encoder -> DiT denoise -> ViT3D video VAE + DAC/BigVGAN audio VAE
@@ -293,7 +295,7 @@ sampler, no logits); upstream is `vllm-project/vllm-omni`. Five conditioning mod
 Compressed-tensors NVFP4A16 (W4A16) dense weights also load and compute natively
 (RedHatAI/Qwen3-32B-NVFP4A16). Long-context RoPE (YaRN, Llama-3, LongRoPE, dynamic-NTK) and
 sliding-window attention are gated feature-positive. The authoritative per-architecture list, bound
-to the C++ registry (all 37 registered architectures with their tested checkpoint and gate, plus the
+to the C++ registry (all 40 registered architectures with their checkpoint and gate status, plus the
 standalone audio/diffusion lanes and the inventoried-but-blocked archs), is in
 [docs/FEATURES.md](docs/FEATURES.md); family-by-family lifecycle detail, including what is
 hardware-blocked and why, is in [docs/STATUS.md](docs/STATUS.md).
@@ -386,7 +388,7 @@ behind a model gallery, multi-model serving, the full OpenAI API surface, auth, 
 ## Use it as a library (C API)
 
 Link `libvllm` and include [`include/vllm.h`](include/vllm.h): a flat, exception-free,
-llama.cpp-style C ABI (`VLLM_ABI_VERSION 19`, 36 exported functions) suitable for `dlopen` / FFI.
+llama.cpp-style C ABI (`VLLM_ABI_VERSION 21`, 46 exported functions) suitable for `dlopen` / FFI.
 
 ```c
 vllm_model_params mp = vllm_model_params_default();
