@@ -96,12 +96,19 @@ const char* Need(int argc, char** argv, int i, const char* flag) {
       "                [--dit-config <transformer-config.json>]   REQUIRED when the DiT\n"
       "                                                           carries no __metadata__\n"
       "                [--model-version 2.5] [--pipeline-kind distilled_two_stage]\n"
+      "                --checkpoint-class full|distilled|keyframe_slot_sft\n"
+      "                                                           REQUIRED: which class of\n"
+      "                                                           transformer --dit points at\n"
       "                [--upsampler <latent-spatial-x2.safetensors>]  phase 2 needs it\n"
+      "                [--temporal-upsampler <latent-temporal-x2.safetensors>]\n"
+      "                [--temporal-upsample-rounds 0|1|2]         dfr only; each round\n"
+      "                                                           doubles the frame count\n"
       "                [--max-phase N] [--allow-unported]\n"
       "                [--lora <ic-lora.safetensors> [STRENGTH]]  fused at load; 1.0\n"
       "                [--prompt-valid-rows N]   how many embed rows are real tokens\n"
       "                [--frames N] [--width N] [--height N] [--seed N]\n"
-      "                [--first-frame <image.ppm>] [--image-crf 0]\n"
+      "                [--first-frame <image.ppm>] [--last-frame <image.ppm>]\n"
+      "                [--image-crf 0]\n"
       "                [--audio-path <in.wav>] [--audio-start-time S]\n"
       "                [--audio-max-duration S]\n"
       "                [--device cpu|cuda]\n\n"
@@ -135,7 +142,12 @@ const char* Need(int argc, char** argv, int i, const char* flag) {
       "round trip needs libx264 and none is vendored here, so leaving --image-crf out\n"
       "resolves 18 and REFUSES by name. --image-crf 0 is upstream-legal and OUT OF\n"
       "DISTRIBUTION: the model sees pixels it was not trained on. That is a quality\n"
-      "cost, and this tool states it rather than turning it on quietly.\n\n"
+      "cost, and this tool states it rather than turning it on quietly.\n"
+      "--last-frame takes a second PPM and pins the CLOSING frame. It is a KEYFRAME\n"
+      "rather than a replacement: its tokens are APPENDED to the sequence, carrying\n"
+      "the temporal position of pixel frame N-1, and are trimmed off again before the\n"
+      "clip is decoded. Both slots share one --image-crf and one strength, and a\n"
+      "keyframe at an INTERIOR frame is not requestable (#1187).\n\n"
       "AUDIO-TO-VIDEO. --audio-path takes a 16-bit PCM WAV and CONDITIONS the render\n"
       "on it: the take is decoded, encoded through the audio VAE\'s encoder, truncated\n"
       "to the clip\'s duration, and then held FROZEN through every denoise phase, so\n"
@@ -170,6 +182,15 @@ const char* Need(int argc, char** argv, int i, const char* flag) {
       "freezes the clip instead; --regenerate-audio has no effect while the source is\n"
       "a frame folder, because a folder carries no audio and both of upstream\'s audio\n"
       "predicates test for one.\n\n"
+      "WHICH TRANSFORMER --dit POINTS AT is something this tool cannot work out, so\n"
+      "--checkpoint-class is REQUIRED on every pipeline kind but dmd2 (#1137).\n"
+      "Upstream keys a checkpoint class per pipeline and most read Full, while the\n"
+      "distilled arms need the distilled file. The two 22B bf16 transformers are the\n"
+      "same 42,018,190,584 bytes, carry a byte-identical embedded config and both\n"
+      "declare model_version 2.5.0, so no header field separates them. Passing the\n"
+      "wrong one used to RENDER: right size, right frame count, right sample rate,\n"
+      "in a sampling regime the weights were never trained for. It is refused now.\n"
+      "\n"
       "TEXT-TO-AUDIO renders a soundtrack and NO PICTURE. --pipeline-kind\n"
       "t2a_one_stage selects it; the result carries an audio.wav, zero frames and no\n"
       "ffmpeg argv, because there is nothing to mux. --video-vae is not needed and\n"
@@ -221,7 +242,19 @@ const char* Need(int argc, char** argv, int i, const char* flag) {
       "divide 64, since stage 1 halves them. Upstream runs this on the FULL\n"
       "(non-distilled) transformer; pointing it at a distilled checkpoint renders a\n"
       "plausible clip on a trajectory those weights were never trained for, and\n"
-      "nothing in the output says so.\n");
+      "nothing in the output says so.\n\n"
+      "KEYFRAME INTERPOLATION generates the motion BETWEEN keyframes you pin.\n"
+      "--pipeline-kind keyframe_interpolation selects it. Its two stages are the\n"
+      "ti2vid_two_stage ones -- guided half-res stage 1 on the UNADAPTED model, then a\n"
+      "distilled three-sigma refinement -- and it needs the same --lora and\n"
+      "--upsampler for the same reasons. TWO fields differ and both of them render\n"
+      "either way. First, --first-frame is a KEYFRAME here rather than a frame that\n"
+      "overwrites the opening latent: upstream drops the frame-0 special case, so the\n"
+      "image is appended as guidance the model interpolates FROM instead of replacing\n"
+      "what it would otherwise generate. Second, the audio.wav you get back is STAGE\n"
+      "2\'s, not stage 1\'s as on ti2vid_two_stage. Use --first-frame and --last-frame\n"
+      "together to pin both ends of the clip; a keyframe at an INTERIOR frame is not\n"
+      "requestable yet.\n");
   std::exit(code);
 }
 
@@ -233,7 +266,7 @@ int main(int argc, char** argv) {
   std::string workdir = "/tmp/ltx2_gen", out_path, ffmpeg = "ffmpeg", device = "cuda";
   // BORROWED by `vllm_video_generate`, like the extras below, so it is owned
   // here and pointed at only after parsing.
-  std::string prompt, first_frame, image_crf;
+  std::string prompt, first_frame, last_frame, image_crf;
   std::string audio_path, audio_start_time, audio_max_duration;
   // RETAKE (row LTX25-RETAKE, #924): a source clip DIRECTORY and the window to
   // regenerate. `--ref-video` is a directory of frame_%06d.ppm, not a container.
@@ -248,6 +281,7 @@ int main(int argc, char** argv) {
   // prompt` above is shared by both, which is why it is not repeated here.
   std::string video_cfg_scale, video_stg_scale, video_rescale, video_skip_step;
   std::string video_stg_blocks, a2v_scale, v2a_scale;
+  std::string temporal_rounds;  // DFR's temporal x2/x4 refinement rounds (#986)
   std::string negative_embeds, negative_audio_embeds;
 
   // The extras are BORROWED by the load call, so the strings must outlive it.
@@ -282,7 +316,24 @@ int main(int argc, char** argv) {
     else if (f == "--dit-config") SetExtra("dit_config_path", Need(argc, argv, ++i, f.c_str()));
     else if (f == "--model-version") SetExtra("model_version", Need(argc, argv, ++i, f.c_str()));
     else if (f == "--pipeline-kind") SetExtra("pipeline_kind", Need(argc, argv, ++i, f.c_str()));
+    // WHICH CLASS OF TRANSFORMER `--dit` points at: `full`, `distilled` or
+    // `keyframe_slot_sft` (row LTX25-CHECKPOINT-CLASS, issue #1137). REQUIRED on
+    // every pipeline kind whose upstream row states a class, which is every kind
+    // but `dmd2`. The library refuses the load without it and says why; this CLI
+    // forwards the flag rather than defaulting one, because every default here
+    // would pick a sampling regime for the caller.
+    else if (f == "--checkpoint-class")
+      SetExtra("checkpoint_class", Need(argc, argv, ++i, f.c_str()));
     else if (f == "--upsampler") SetExtra("upsampler_path", Need(argc, argv, ++i, f.c_str()));
+    // DFR's SECOND upsampler, and its round count (#986). Upstream splits these
+    // the same way: `--temporal-upsampler-path` is a constructor argument
+    // (dfr_pipeline.py:578-583, :177) and `--temporal-upsample-rounds` is a
+    // `__call__` argument (:584-590, :277), so one is a LOAD extra here and the
+    // other rides the per-generation array.
+    else if (f == "--temporal-upsampler")
+      SetExtra("temporal_upsampler_path", Need(argc, argv, ++i, f.c_str()));
+    else if (f == "--temporal-upsample-rounds")
+      temporal_rounds = Need(argc, argv, ++i, f.c_str());
     else if (f == "--negative-prompt-embeds") {
       negative_embeds = Need(argc, argv, ++i, f.c_str());
       SetExtra("negative_prompt_embeds_path", negative_embeds);
@@ -319,6 +370,15 @@ int main(int argc, char** argv) {
     // own 18 and refuse, which is the point: this CLI must not be the thing that
     // quietly turns an out-of-distribution render on.
     else if (f == "--first-frame") first_frame = Need(argc, argv, ++i, "--first-frame");
+    // `--last-frame` pins the CLOSING keyframe, at pixel frame `frames - 1`. The
+    // ABI has carried `last_frame` and the engine has served it since row
+    // LTX25-TOKEN-APPEND (#930); this CLI simply never read the field, which
+    // #1191 records. It matters from `keyframe_interpolation` on, because a
+    // pipeline whose whole job is the motion BETWEEN two pinned frames could
+    // otherwise only be asked for one of them. Same `--image-crf` and the same
+    // strength as the first frame, because the request surface carries one of
+    // each (#1187).
+    else if (f == "--last-frame") last_frame = Need(argc, argv, ++i, "--last-frame");
     else if (f == "--image-crf") image_crf = Need(argc, argv, ++i, "--image-crf");
     // AUDIO-TO-VIDEO (#922). Upstream's `--audio-path` is REQUIRED because that
     // CLI drives the A2V pipeline and nothing else (a2vid_two_stage.py:312-317);
@@ -399,6 +459,7 @@ int main(int argc, char** argv) {
   vp.output_dir = workdir.c_str();
   if (!prompt.empty()) vp.prompt = prompt.c_str();
   if (!first_frame.empty()) vp.first_frame = first_frame.c_str();
+  if (!last_frame.empty()) vp.last_frame = last_frame.c_str();
   if (!ref_video.empty()) vp.ref_video = ref_video.c_str();
 
   // The PER-GENERATION extras are a SEPARATE array from the load-time ones, and
@@ -425,7 +486,17 @@ int main(int argc, char** argv) {
   // Each retake knob rides the SAME per-generation array. Supplying one without
   // the window is refused by the engine rather than ignored, so a half-typed
   // retake reports what is missing instead of rendering the ordinary path.
-  for (const auto& kv : {std::make_pair("retake_start_time", &retake_start),
+  // The knobs are a NAMED array rather than a braced-init-list iterated in
+  // place. Both are correct -- a braced-init-list bound to the range variable
+  // has its backing array lifetime-extended for the whole loop -- but the
+  // in-place form draws -Wdangling-reference from gcc 16, which
+  // `build-newest-gcc` found on its first run. The warning is a false positive
+  // and it is not silenced: the range now has automatic storage and a name, so
+  // no reference binds to a temporary and the question does not arise. Making
+  // the loop variable a copy does NOT help; the diagnostic is about the range
+  // reference, not the element.
+  const std::pair<const char*, std::string*> retake_knobs[] = {
+      std::make_pair("retake_start_time", &retake_start),
                          std::make_pair("retake_end_time", &retake_end),
                          std::make_pair("retake_frame_rate", &retake_fps),
                          std::make_pair("regenerate_video", &regen_video),
@@ -452,7 +523,15 @@ int main(int argc, char** argv) {
                          std::make_pair("video_skip_step", &video_skip_step),
                          std::make_pair("video_stg_blocks", &video_stg_blocks),
                          std::make_pair("a2v_guidance_scale", &a2v_scale),
-                         std::make_pair("v2a_guidance_scale", &v2a_scale)}) {
+                         std::make_pair("v2a_guidance_scale", &v2a_scale),
+                         // DFR'S TEMPORAL ROUNDS (#986), mirroring upstream's own
+                         // `--temporal-upsample-rounds` (dfr_pipeline.py:584-590).
+                         // Per-generation because upstream takes it on `__call__`
+                         // (:277) rather than on the constructor, unlike the
+                         // temporal upsampler PATH beside it, which is a load knob
+                         // for the same reason (:177).
+                         std::make_pair("temporal_upsample_rounds", &temporal_rounds)};
+  for (const auto& kv : retake_knobs) {
     if (kv.second->empty()) continue;
     gen_keys.emplace_back(kv.first);
     gen_values.push_back(*kv.second);
@@ -499,6 +578,18 @@ int main(int argc, char** argv) {
   }
   std::fprintf(stderr, "  wrote %d frames (%dx%d @ %d fps) + %s (%d Hz)\n", out.frame_count,
                out.width, out.height, out.fps, out.audio_path, out.sample_rate);
+  // WHERE THE RENDER SPENT ITS WALL (ABI v23, issue #1010). This example is a
+  // client of `vllm.h` and nothing else, so it names the table by asking the
+  // handle rather than by guessing a filename beside the frames. Printed on the
+  // shipped default: a render long enough to need the table is one nobody knew
+  // to instrument in advance, and a path printed after the fact is what makes
+  // the evidence retrievable at all.
+  const char* phase_log = vllm_video_last_phase_log(engine);
+  if (phase_log != nullptr) {
+    std::fprintf(stderr, "  phase table: %s\n", phase_log);
+  } else {
+    std::fprintf(stderr, "  phase table: none (this family emits no phase log)\n");
+  }
 
   int status = 0;
   if (!out_path.empty()) {

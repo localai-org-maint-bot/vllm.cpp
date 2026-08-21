@@ -28,6 +28,8 @@
 // work-stealing cursor, reached via -I src the way every other threading A/B in
 // this tree does (tests/vt/test_ops_conv2d.cpp:25).
 #include "vt/cpu/cpu_threadpool.h"
+#include "vt/op_provider.h"
+#include "vt/ops.h"
 #include "vllm/model_executor/models/ltx2_audio_vae.h"
 #include "vllm/model_executor/models/ltx2_audio_vae_encoder.h"
 #include "vllm/model_executor/models/ltx2_conditioning.h"
@@ -1340,6 +1342,52 @@ TEST_CASE("ltx2 vae: the decode DISPATCHES its convolutions to the CPU threadpoo
   const double err = MaxAbsDiff(got.data, want.data(), got.data.size());
   INFO("threaded decode max|out - 7| = " << err);
   CHECK(err <= kLtx2GoldenTol);
+}
+
+TEST_CASE("ltx2 vae: the decode DISPATCHES its convolutions through the vt::Conv3d seam") {
+  // REACHABILITY, #1007 / LTX25-DEVICE-RESIDENCY W5. The decode's convolution no
+  // longer lives in ltx2_video_vae.cpp; it is `vt::Conv3d` on the queue the
+  // engine hands down, and this case is what proves the SHIPPING path reaches
+  // that seam rather than that the op works.
+  //
+  // THE INSTRUMENT is the op provider's own selection counter
+  // (include/vt/op_provider.h `GetOpProviderStats`), which counts resolutions
+  // through `GetOp` once per-call counting is on. It is a direct observation of
+  // "this op executed", not an inference from an output value: a decode that
+  // reverted to a private host loop would produce the SAME pixels and still read
+  // zero here. The `REQUIRE` before the decode is its own positive control — the
+  // counter demonstrably reads zero when nothing has dispatched.
+  //
+  // THE COUNT IS PINNED, and the number is a property of the fixture rather than
+  // of the seam: `MakeLtx2ThreadFixture` sets `decoder_blocks = {}`, so the
+  // decode issues exactly TWO convolutions, `conv_in` and `conv_out`. A pin
+  // rather than `>= 1` because it also catches a decode that grew or lost a
+  // convolution — the count and the pixels are independent observations.
+  //
+  // WHAT IT DOES NOT NEED TO PROVE, because the structure rules it out: that
+  // every one of the nine `CausalConv3d` call sites routes. All nine share ONE
+  // dispatch, `Conv3dThroughSeam` inside `CausalConv3d`
+  // (src/vllm/model_executor/models/ltx2_video_vae.cpp), so "some sites kept a
+  // private path" is not a reachable state. Deleting that one call is the
+  // mutation, and it reds this case and every video golden in this file.
+  const Ltx2ThreadFixture f = MakeLtx2ThreadFixture();
+
+  vt::EnableOpProviderCallStats(true);
+  vt::ResetOpProviderStats(vt::OpId::kConv3d, vt::DeviceType::kCPU);
+  REQUIRE(vt::GetOpProviderStats(vt::OpId::kConv3d, vt::DeviceType::kCPU).selections == 0);
+
+  int64_t chunks = 0;
+  const vllm::Ltx2VideoFrames got = Ltx2ThreadDecode(f, &chunks);
+  const vt::OpProviderStats stats =
+      vt::GetOpProviderStats(vt::OpId::kConv3d, vt::DeviceType::kCPU);
+  vt::EnableOpProviderCallStats(false);
+
+  REQUIRE(chunks == 1);
+  REQUIRE(!got.data.empty());
+  INFO("kConv3d dispatches through the production decode = " << stats.selections);
+  CHECK(stats.selections == 2u);
+  REQUIRE(stats.last_selected != nullptr);
+  CHECK(std::string(stats.last_selected) == std::string(vt::kNativeProviderName));
 }
 
 TEST_CASE("ltx2 vae: the decode is BIT-IDENTICAL across thread counts") {
@@ -2715,6 +2763,77 @@ TEST_CASE("ltx2 conditioning: a KEYFRAME appends tokens at its own pixel frame")
                                      vllm_test::kLtx2CondKeyframeFrameIdx, 0.6, 1,
                                      /*causal_fix=*/false);
   CHECK(no_fix.positions == state.positions);
+}
+
+TEST_CASE("ltx2 conditioning: the keyframe causal fix is gated on frame_idx == 0, and shows") {
+  // THE GATE `keyframe_cond.py:49` MIRRORS — `latent_tools.causal_fix if
+  // self.frame_idx == 0 else False` — and the reason it needs its own case is
+  // that the sibling case above cannot see it. That one passes
+  // `num_pixel_frames = 1`, and at that value the fix is INERT AT EVERY
+  // `frame_idx`: `get_pixel_coords` rewrites the temporal axis to
+  // `max(value + 1 - time, 0)` (patchifiers.py:166-169), which leaves a
+  // one-latent-frame keyframe's START at 0 either way, and then the
+  // `num_pixel_frames == 1` narrow at `keyframe_cond.py:56-57` overwrites the END
+  // the fix had moved. So `no_fix.positions == state.positions` there holds
+  // whether the gate is wired forwards, backwards, or not at all.
+  //
+  // MEASURED, on a probe of `Ltx2ConditionVideoByKeyframe` at these shapes:
+  // `num_pixel_frames = 1` gives 0 of 48 differing position values at
+  // `frame_idx` 0 and at `frame_idx` 8 alike; `num_pixel_frames != 1` gives 4 of
+  // 48 at `frame_idx` 0 and 0 of 48 at `frame_idx` 8. This case is that probe.
+  // The production first-frame arm (`ltx2_video.cpp`) passes
+  // `num_pixel_frames = 1`, so its `causal_fix = true` is unobservable BY
+  // CONSTRUCTION and no call-site check can gate it — this is where the gate
+  // lives instead.
+  const vllm::Ltx2VideoLatentShape target = CondVideoTarget();
+  const vllm::Ltx2ScaleFactors factors;
+  const vllm::Ltx2LatentVolume keyframe = CondVolume("ltx2.cond.keyframe", 4, 1, 2, 2);
+
+  // `num_pixel_frames` anything but 1, so the temporal END survives to be read.
+  constexpr int64_t kWideFrames = 2;
+
+  auto positions_at = [&](int64_t frame_idx, bool causal_fix) {
+    vllm::Ltx2LatentState state =
+        vllm::Ltx2CreateVideoLatentState(target, kCondPatch, factors, kCondFps, true);
+    vllm::Ltx2ConditionVideoByKeyframe(&state, keyframe, kCondPatch, factors, kCondFps, frame_idx,
+                                       /*strength=*/0.6, kWideFrames, causal_fix);
+    return state.positions;
+  };
+
+  // ── frame 0: the gate is OPEN, so the argument reaches `get_pixel_coords` ──
+  const std::vector<float> at0_fix = positions_at(0, true);
+  const std::vector<float> at0_no = positions_at(0, false);
+  REQUIRE(at0_fix.size() == at0_no.size());
+  CHECK_MESSAGE(at0_fix != at0_no,
+                "at frame_idx 0 `causal_fix` is passed through unchanged "
+                "(keyframe_cond.py:49), so flipping it must move the temporal positions. Equal "
+                "here means the argument never reaches `get_pixel_coords` and the production "
+                "call sites are choosing a value nothing consumes");
+
+  // ...and the DIRECTION is upstream's, not merely different. The fix shortens
+  // the first latent frame's pixel span from `[0, time)` to `[0, 1)`, because
+  // the VAE's stride for the very first frame is 1 (patchifiers.py:166-169), so
+  // the fixed temporal END is the SMALLER of the two. A flag wired backwards
+  // moves the positions and fails only this half.
+  const size_t tokens_before = static_cast<size_t>(
+      vllm::Ltx2VideoTokenCount(target, kCondPatch));
+  const size_t first_end = tokens_before * 2 + 1;  // dimension 0, first appended token, [1]
+  REQUIRE(at0_fix.size() > first_end);
+  CHECK_MESSAGE(at0_fix[first_end] < at0_no[first_end],
+                "the causal fix SHORTENS the first frame's temporal span "
+                "(patchifiers.py:166-169); fixed end "
+                    << at0_fix[first_end] << " against unfixed " << at0_no[first_end]);
+
+  // ── any other frame: the gate is CLOSED and the argument is discarded ──────
+  const std::vector<float> at5_fix =
+      positions_at(vllm_test::kLtx2CondKeyframeFrameIdx, true);
+  const std::vector<float> at5_no =
+      positions_at(vllm_test::kLtx2CondKeyframeFrameIdx, false);
+  CHECK_MESSAGE(at5_fix == at5_no,
+                "a keyframe that is not at pixel frame 0 has no first frame to correct, so "
+                "`keyframe_cond.py:49` forces False and the argument must change nothing. This "
+                "is the half the sibling case states, and at `num_pixel_frames = 1` it holds "
+                "vacuously");
 }
 
 TEST_CASE("ltx2 conditioning: a REFERENCE VIDEO is translated into the target's frame") {

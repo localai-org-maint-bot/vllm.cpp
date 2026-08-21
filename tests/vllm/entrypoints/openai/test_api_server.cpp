@@ -22,12 +22,15 @@
 #include <mutex>
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #if defined(_WIN32)
@@ -114,6 +117,120 @@ using vllm::v1::sha256_cbor;
 using vt::DType;
 
 namespace {
+
+// ─── Threads that can still report a failure (#584) ──────────────────────────
+//
+// Every socket case below runs the server on a background thread and asserts
+// against it. A bare `std::thread` held across those assertions makes the file
+// unable to report anything at all, through two separate std::terminate paths:
+//
+//   1. `~thread` on a JOINABLE thread calls std::terminate ([thread.thread.destr]).
+//      A failing REQUIRE, or a `json::parse` on an unexpected body, unwinds past
+//      the thread object and ends the process.
+//   2. An exception escaping a thread's initial function is std::terminate too
+//      ([except.handle]/9), so a throw inside `serve()` does the same.
+//
+// On MSVC std::terminate reaches `abort()`, which is `__fastfail`, which raises
+// status 0xC0000409 and bypasses SEH by design. doctest's Windows handler never
+// runs and its buffered stdout is discarded, so a NAMED assertion failure
+// arrives in CI as an opaque exit code with no `Status:` and no `assertions:`
+// line — which is exactly what #584 has printed on both Windows lanes.
+//
+// These two types close both paths. They do not claim to fix whatever #584's
+// fast-fail actually is; they make the run able to say so.
+
+// One thread, joined by the destructor on every path. The body runs inside a
+// catch-all and the escaped exception is rethrown by `join()`, which is a
+// synchronisation point, so the store and the load do not race. The DESTRUCTOR
+// never rethrows: throwing while unwinding is the failure this type exists to
+// prevent. `stop_request` runs before the join, for a body that waits on
+// something and would otherwise never return.
+class ScopedThread {
+ public:
+  template <typename Body>
+  explicit ScopedThread(Body&& body, std::function<void()> stop_request = {})
+      : stop_request_(std::move(stop_request)),
+        escaped_(std::make_shared<std::exception_ptr>()),
+        thread_([slot = escaped_, fn = std::forward<Body>(body)]() mutable {
+          try {
+            fn();
+          } catch (...) {
+            *slot = std::current_exception();
+          }
+        }) {}
+
+  ScopedThread(const ScopedThread&) = delete;
+  ScopedThread& operator=(const ScopedThread&) = delete;
+  // Movable so a vector of them can exist; the body captured the exception slot
+  // BY VALUE rather than capturing `this`, so a move leaves no dangling handle.
+  ScopedThread(ScopedThread&&) = default;
+  // Move ASSIGNMENT stays deleted: assigning onto a joinable thread is itself
+  // std::terminate, and nothing here needs it.
+  ScopedThread& operator=(ScopedThread&&) = delete;
+
+  ~ScopedThread() { stop_and_join(); }
+
+  // Join and surface an exception the body swallowed, at a point where doctest
+  // can translate and name it.
+  void join() {
+    stop_and_join();
+    if (escaped_ && *escaped_) {
+      std::exception_ptr e = *escaped_;
+      *escaped_ = nullptr;
+      std::rethrow_exception(e);
+    }
+  }
+
+ private:
+  void stop_and_join() noexcept {
+    if (!thread_.joinable()) return;
+    if (stop_request_) {
+      // A throwing stop action would defeat the whole point on the unwind path.
+      try {
+        stop_request_();
+      } catch (...) {
+      }
+    }
+    thread_.join();
+  }
+
+  std::function<void()> stop_request_;
+  std::shared_ptr<std::exception_ptr> escaped_;
+  std::thread thread_;  // declared last: constructed after the slot it reads
+};
+
+// `ScopedThread` for the shape that dominates this file — an ApiServer served on
+// a background thread. It owns the `stop()` as well as the join, so a case that
+// throws before its stop line is reached still ends.
+//
+// The stop action waits for the accept loop first. `httplib::Server::stop()` is
+// a no-op while `is_running_` is false (`third_party/httplib/httplib.h:11460`),
+// and `listen_internal` raises that flag only once it is in the loop (`:12027`),
+// so stopping too early would leave the destructor blocked in `join()` forever —
+// turning a fast-fail into a CI timeout, which is a worse instrument, not a
+// better one. The bound is the same 500 x 2 ms the call sites already used.
+//
+// It owns the stop EXCLUSIVELY, and the call sites no longer call
+// `h.server.stop()` themselves. A second `stop()` is not a no-op: it sees
+// `is_running_` still true while the accept loop unwinds and `svr_sock_` already
+// exchanged to INVALID_SOCKET, which trips `assert(svr_sock_ != INVALID_SOCKET)`
+// at `httplib.h:11462` on every build that is not NDEBUG — which is this suite's
+// own Linux build.
+class ScopedServerThread {
+ public:
+  explicit ScopedServerThread(ApiServer& server)
+      : thread_([&server] { server.serve(); },
+                [&server] {
+                  for (int i = 0; i < 500 && !server.is_running(); ++i)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                  server.stop();
+                }) {}
+
+  void join() { thread_.join(); }
+
+ private:
+  ScopedThread thread_;
+};
 
 // ─── Synthetic weights (mirrors test_serving.cpp) ────────────────────────────
 uint64_t Mix(uint64_t x) {
@@ -1240,7 +1357,7 @@ TEST_CASE("api_server: socket smoke — real HTTP requests over an ephemeral por
 
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   // Wait until the accept loop is up.
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -1299,8 +1416,7 @@ TEST_CASE("api_server: socket smoke — real HTTP requests over an ephemeral por
     CHECK(j.at("choices").at(0).at("message").at("role") == "assistant");
   }
 
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 // Route-registration gate over a real socket: /tokenizer_info is ABSENT (404)
@@ -1319,7 +1435,7 @@ TEST_CASE("api_server: /tokenizer_info + /abort_requests are opt-in routes") {
     h.server.set_tokenizer(&Fixture(), kMaxModelLen);
     const int port = h.server.bind_to_any_port("127.0.0.1");
     REQUIRE(port > 0);
-    std::thread server_thread([&h]() { h.server.serve(); });
+    ScopedServerThread server_thread(h.server);
     for (int i = 0; i < 500 && !h.server.is_running(); ++i)
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE(h.server.is_running());
@@ -1334,8 +1450,7 @@ TEST_CASE("api_server: /tokenizer_info + /abort_requests are opt-in routes") {
     REQUIRE(abort);
     CHECK(abort->status == 404);  // no callback → route not registered
 
-    h.server.stop();
-    server_thread.join();
+    server_thread.join();  // stops the server, then joins
   }
 
   SUBCASE("backings attached → routes serve (200)") {
@@ -1350,7 +1465,7 @@ TEST_CASE("api_server: /tokenizer_info + /abort_requests are opt-in routes") {
         });
     const int port = h.server.bind_to_any_port("127.0.0.1");
     REQUIRE(port > 0);
-    std::thread server_thread([&h]() { h.server.serve(); });
+    ScopedServerThread server_thread(h.server);
     for (int i = 0; i < 500 && !h.server.is_running(); ++i)
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE(h.server.is_running());
@@ -1369,8 +1484,7 @@ TEST_CASE("api_server: /tokenizer_info + /abort_requests are opt-in routes") {
     CHECK(json::parse(abort->body).at("aborted") == 2);
     CHECK(aborted_calls == 1);
 
-    h.server.stop();
-    server_thread.join();
+    server_thread.join();  // stops the server, then joins
   }
 }
 
@@ -1389,15 +1503,14 @@ TEST_CASE("api_server: ConfigureUtilityEndpoints wires the production C8 surface
   auto with_server = [](ServerHarness& h, auto&& body) {
     const int port = h.server.bind_to_any_port("127.0.0.1");
     REQUIRE(port > 0);
-    std::thread server_thread([&h]() { h.server.serve(); });
+    ScopedServerThread server_thread(h.server);
     for (int i = 0; i < 500 && !h.server.is_running(); ++i)
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE(h.server.is_running());
     httplib::Client client("127.0.0.1", port);
     client.set_read_timeout(5, 0);
     body(client);
-    h.server.stop();
-    server_thread.join();
+    server_thread.join();  // stops the server, then joins
   };
 
   // RED: a default production server WITHOUT the wiring seam 404s every C8 route,
@@ -1531,15 +1644,19 @@ TEST_CASE("api_server: concurrent requests share AsyncLLM without state races") 
 
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
 
   constexpr int kClients = 6;
-  std::vector<std::thread> clients;
   std::vector<int> statuses(kClients, -1);
   std::vector<std::string> texts(kClients);
+  // Declared AFTER the vectors its bodies write into, so the joining destructor
+  // runs BEFORE those vectors are destroyed. The previous order was safe only
+  // because a joinable `std::thread` ended the process instead of unwinding.
+  std::vector<ScopedThread> clients;
+  clients.reserve(kClients);
   for (int i = 0; i < kClients; ++i) {
     clients.emplace_back([&, i]() {
       httplib::Client client("127.0.0.1", port);
@@ -1571,8 +1688,7 @@ TEST_CASE("api_server: concurrent requests share AsyncLLM without state races") 
   for (int i = 1; i < kClients; ++i)
     CHECK(texts[static_cast<size_t>(i)] == texts[0]);
 
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 TEST_CASE("api_server: configured persistent-stream capacity remains readable") {
@@ -1586,7 +1702,7 @@ TEST_CASE("api_server: configured persistent-stream capacity remains readable") 
         kStreamCapacity + ApiServer::kControlWorkerHeadroom);
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
@@ -1618,8 +1734,7 @@ TEST_CASE("api_server: configured persistent-stream capacity remains readable") 
   CHECK(response->status == 200);
 
   parked.clear();
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 TEST_CASE("api_server: stream capacity must be positive") {
@@ -1659,7 +1774,7 @@ TEST_CASE(
 
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
@@ -1697,8 +1812,7 @@ TEST_CASE(
   CHECK(nodelay == 1);    // RED until ApiServer calls set_tcp_nodelay(true)
 
   ::close(client_fd);
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 #endif  // defined(__linux__)
 }
 
@@ -2098,15 +2212,14 @@ TEST_CASE("api_server: the /v1/videos routes do not exist without a runner") {
   auto with_server = [](ServerHarness& h, auto&& body) {
     const int port = h.server.bind_to_any_port("127.0.0.1");
     REQUIRE(port > 0);
-    std::thread server_thread([&h]() { h.server.serve(); });
+    ScopedServerThread server_thread(h.server);
     for (int i = 0; i < 500 && !h.server.is_running(); ++i)
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE(h.server.is_running());
     httplib::Client client("127.0.0.1", port);
     client.set_read_timeout(5, 0);
     body(client);
-    h.server.stop();
-    server_thread.join();
+    server_thread.join();  // stops the server, then joins
   };
 
   SUBCASE("no runner: every video route 404s, and the core routes are unaffected") {
@@ -2264,7 +2377,7 @@ TEST_CASE("api_server: transcriptions socket smoke (multipart), generate routes 
   AsrHarness h;
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
@@ -2311,8 +2424,7 @@ TEST_CASE("api_server: transcriptions socket smoke (multipart), generate routes 
           "parakeet-fixture");
   }
 
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 TEST_CASE("api_server: the audio routes do not exist on a TEXT server") {
@@ -2330,7 +2442,7 @@ TEST_CASE("api_server: the audio routes do not exist on a TEXT server") {
 
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
@@ -2363,8 +2475,7 @@ TEST_CASE("api_server: the audio routes do not exist on a TEXT server") {
     CHECK(health->status == 200);
   }
 
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 // ─── ARCH-ONE-SURFACE ROW 8: the server's --device seam ──────────────────────
@@ -2518,7 +2629,7 @@ TEST_CASE("api_server: embeddings socket smoke; generate routes 404 on the "
   EmbedHarness h;
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
@@ -2554,8 +2665,7 @@ TEST_CASE("api_server: embeddings socket smoke; generate routes 404 on the "
           "llama-embed-fixture");
   }
 
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 TEST_CASE("api_server: /v1/embeddings does not exist on a TEXT server") {
@@ -2571,7 +2681,7 @@ TEST_CASE("api_server: /v1/embeddings does not exist on a TEXT server") {
 
   const int port = h.server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&h]() { h.server.serve(); });
+  ScopedServerThread server_thread(h.server);
   for (int i = 0; i < 500 && !h.server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(h.server.is_running());
@@ -2586,8 +2696,7 @@ TEST_CASE("api_server: /v1/embeddings does not exist on a TEXT server") {
     CHECK(res->status == 404);
   }
 
-  h.server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }
 
 TEST_CASE("platform process: Windows command line preserves every argv byte") {
@@ -2626,10 +2735,16 @@ TEST_CASE("platform shutdown: teardown drains an acquired console handler") {
   auto shutdown = std::make_unique<vllm::platform::ConsoleShutdown>(
       [&]() { ++stops; });
   shutdown->SetBeforeDrainEventForTest(before_drain);
-  std::thread handler([&] {
-    CHECK(vllm::platform::ConsoleShutdown::DispatchControlEventForTest(
-        CTRL_BREAK_EVENT, acquired, resume));
-  });
+  // Both threads below block until `resume` is set, so their stop action is
+  // that SetEvent: an unwind must not park the joining destructor forever.
+  // `resume` is manual-reset, so setting an already-set event is a no-op and
+  // the explicit SetEvent calls further down stay exactly as they were.
+  ScopedThread handler(
+      [&] {
+        CHECK(vllm::platform::ConsoleShutdown::DispatchControlEventForTest(
+            CTRL_BREAK_EVENT, acquired, resume));
+      },
+      [&] { SetEvent(resume); });
   const DWORD acquired_result = WaitForSingleObject(acquired, kWaitMs);
   if (acquired_result != WAIT_OBJECT_0) {
     SetEvent(resume);
@@ -2640,10 +2755,12 @@ TEST_CASE("platform shutdown: teardown drains an acquired console handler") {
     CloseHandle(acquired);
     FAIL("console handler did not acquire state within timeout");
   }
-  std::thread destroyer([&] {
-    shutdown.reset();
-    destroyed.store(true, std::memory_order_release);
-  });
+  ScopedThread destroyer(
+      [&] {
+        shutdown.reset();
+        destroyed.store(true, std::memory_order_release);
+      },
+      [&] { SetEvent(resume); });
   const DWORD drain_result = WaitForSingleObject(before_drain, kWaitMs);
   if (drain_result != WAIT_OBJECT_0) {
     SetEvent(resume);
@@ -2905,6 +3022,50 @@ vllm::openai::SpeechResponse StereoWav(int64_t frames) {
   return out;
 }
 
+// A 44-byte-header 16-bit PCM MONO WAV as a base64 `data:` URL, which is the
+// only reference-clip encoding `ParseSpeechRequest` accepts. Built here, like
+// its twin in test_speech_api.cpp, so the sample values stay visible to the
+// assertions rather than sitting in a committed blob.
+std::string MonoWavDataUri(const std::vector<int16_t>& samples, uint32_t rate) {
+  std::string wav;
+  const uint32_t payload = static_cast<uint32_t>(samples.size() * 2);
+  const auto put32 = [&wav](uint32_t v) {
+    for (int i = 0; i < 4; ++i) wav += static_cast<char>((v >> (8 * i)) & 0xFF);
+  };
+  const auto put16 = [&wav](uint16_t v) {
+    for (int i = 0; i < 2; ++i) wav += static_cast<char>((v >> (8 * i)) & 0xFF);
+  };
+  wav += "RIFF";
+  put32(36u + payload);
+  wav += "WAVE";
+  wav += "fmt ";
+  put32(16u);
+  put16(1u);  // PCM
+  put16(1u);  // mono
+  put32(rate);
+  put32(rate * 2);
+  put16(2u);
+  put16(16u);
+  wav += "data";
+  put32(payload);
+  for (const int16_t sample : samples) put16(static_cast<uint16_t>(sample));
+
+  static const char* kAlphabet =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string b64;
+  for (size_t i = 0; i < wav.size(); i += 3) {
+    const uint32_t a = static_cast<unsigned char>(wav[i]);
+    const uint32_t b = i + 1 < wav.size() ? static_cast<unsigned char>(wav[i + 1]) : 0u;
+    const uint32_t d = i + 2 < wav.size() ? static_cast<unsigned char>(wav[i + 2]) : 0u;
+    const uint32_t triple = (a << 16) | (b << 8) | d;
+    b64 += kAlphabet[(triple >> 18) & 0x3F];
+    b64 += kAlphabet[(triple >> 12) & 0x3F];
+    b64 += i + 1 < wav.size() ? kAlphabet[(triple >> 6) & 0x3F] : '=';
+    b64 += i + 2 < wav.size() ? kAlphabet[triple & 0x3F] : '=';
+  }
+  return "data:audio/wav;base64," + b64;
+}
+
 uint32_t WavU32(const std::string& wav, size_t offset) {
   return static_cast<uint32_t>(static_cast<unsigned char>(wav[offset])) |
          (static_cast<uint32_t>(static_cast<unsigned char>(wav[offset + 1])) << 8) |
@@ -3062,7 +3223,7 @@ TEST_CASE("api_server: /v1/audio/speech route registration is ADDITIVE over a re
   auto with_socket = [](ServerHarness& h, auto&& body) {
     const int port = h.server.bind_to_any_port("127.0.0.1");
     REQUIRE(port > 0);
-    std::thread server_thread([&h]() { h.server.serve(); });
+    ScopedServerThread server_thread(h.server);
     for (int i = 0; i < 500 && !h.server.is_running(); ++i)
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     REQUIRE(h.server.is_running());
@@ -3070,8 +3231,7 @@ TEST_CASE("api_server: /v1/audio/speech route registration is ADDITIVE over a re
     client.set_connection_timeout(5, 0);
     client.set_read_timeout(15, 0);
     body(client);
-    h.server.stop();
-    server_thread.join();
+    server_thread.join();  // stops the server, then joins
   };
 
   SUBCASE("with NO speech family attached the route is 404 and nothing leaks") {
@@ -3126,6 +3286,259 @@ TEST_CASE("api_server: /v1/audio/speech route registration is ADDITIVE over a re
   }
 }
 
+// The REQUEST-KEY contract, entered through the production route rather than
+// through `ParseSpeechRequest`. `tests/vllm/entrypoints/openai/test_speech_api.cpp`
+// localizes each refusal; this case proves the registered endpoint reaches them,
+// which is the half a parser test cannot see — the parse call at
+// `api_server.cpp:504` is one line, and deleting it leaves every parser test
+// green while `POST /v1/audio/speech` honours nothing.
+TEST_CASE("api_server: /v1/audio/speech refuses the dropped keys AT THE ROUTE") {
+  const HfConfig c = MakeConfig();
+  const Qwen3_5MoeWeights w = MakeWeights(c);
+  ServerHarness h(c, w, Fixture());
+
+  vllm::openai::SpeechRequest seen;
+  int64_t calls = 0;
+  vllm::openai::SpeechCapabilities caps;
+  caps.family = "minimax-music3";
+  caps.sample_rate = 44100;
+  caps.channels = 2;
+  caps.requires_reference_audio = false;
+  h.server.set_synthesizer(
+      [&](const vllm::openai::SpeechRequest& req) {
+        seen = req;
+        ++calls;
+        return StereoWav(8);
+      },
+      caps);
+
+  // THE COST CASE OF #925, as the route sees it: `audio_duration` where OpenAI
+  // puts it, beside an `extra_params` object. The duration used to be dropped
+  // here and the family answered with 60 s of music behind a 200.
+  ApiServer::DispatchResult split = h.server.handle_audio_speech(
+      R"({"lyrics":"[Verse]\nx\n","extra_params":{"seed":7},"audio_duration":0.1})");
+  CHECK(split.status == 200);
+  CHECK(calls == 1);
+  CHECK(seen.audio_duration_s == doctest::Approx(0.1));
+  CHECK(seen.seed == 7);
+
+  // Each newly refused key is a 400 whose body NAMES the key and what to send
+  // instead, and NOTHING is synthesized.
+  calls = 0;
+  struct Case {
+    const char* body;
+    const char* names;
+  };
+  const Case cases[] = {
+      {R"({"input":"hi","speaker":"alloy"})", "`speaker` is SGLang-Omni's alias for `voice`"},
+      {R"({"lyrics":"x","instructions":"Genre: lo-fi"})",
+       "`instructions` is SGLang-Omni's spelling"},
+      {R"({"input":"hi","ref_audio":"/tmp/v.wav"})", "`ref_audio` is SGLang-Omni's spelling"},
+      {R"({"input":"hi","ref_text":"hello"})",
+       "`ref_text` (the transcript of a reference clip) is not supported"},
+      {R"({"lyrics":"x","token_count":250})", "`token_count` is SGLang-Omni's LENGTH"},
+      {R"({"lyrics":"x","duration_tokens":250})", "`duration_tokens` is SGLang-Omni's LENGTH"},
+      {R"({"input":"hi","task_type":"CustomVoice"})",
+       "`task_type` (`Base`/`CustomVoice`/`VoiceDesign`) is not supported"},
+      {R"({"input":"hi","x_vector_only_mode":true})", "`x_vector_only_mode` is not supported"},
+      {R"({"input":"hi","initial_codec_chunk_frames":4})",
+       "`initial_codec_chunk_frames` is not supported"},
+      // The guards that already existed, now seen through an `extra_params`
+      // body, which is where they had stopped firing.
+      {R"({"lyrics":"x","extra_params":{"seed":7},"audio_duration_s":0.1})",
+       "`audio_duration_s` is not a request key"},
+      {R"({"lyrics":"x","extra_params":{"seed":7},"temperature":0.7})",
+       "`temperature` is not supported"},
+      {R"({"lyrics":"x","extra_params":{"voice":"alloy"}})", "`voice` is not supported"},
+  };
+  for (const Case& one : cases) {
+    CAPTURE(one.body);
+    ApiServer::DispatchResult r = h.server.handle_audio_speech(one.body);
+    CHECK(r.status == 400);
+    CHECK(r.content_type == "application/json");
+    CHECK(r.body.find(one.names) != std::string::npos);
+    CHECK(r.body.find("RIFF") == std::string::npos);
+  }
+  // NOT ONE of the twelve reached the family.
+  CHECK(calls == 0);
+}
+
+TEST_CASE("api_server: /v1/audio/speech honours the request keys OVER A REAL SOCKET") {
+  // The route table plus the handler plus the parser, entered the way a user
+  // enters them. #925 was a 42-minute job that a caller could not tell from the
+  // one it asked for, so the claim worth pinning here is a claim about an HTTP
+  // request and not about a function.
+  const HfConfig c = MakeConfig();
+  const Qwen3_5MoeWeights w = MakeWeights(c);
+  ServerHarness h(c, w, Fixture());
+
+  vllm::openai::SpeechRequest seen;
+  vllm::openai::SpeechCapabilities caps;
+  caps.family = "minimax-music3";
+  caps.sample_rate = 44100;
+  caps.channels = 2;
+  caps.requires_reference_audio = false;
+  h.server.set_synthesizer(
+      [&](const vllm::openai::SpeechRequest& req) {
+        seen = req;
+        return StereoWav(8);
+      },
+      caps);
+
+  const int port = h.server.bind_to_any_port("127.0.0.1");
+  REQUIRE(port > 0);
+  ScopedServerThread server_thread(h.server);
+  for (int i = 0; i < 500 && !h.server.is_running(); ++i)
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  REQUIRE(h.server.is_running());
+  httplib::Client client("127.0.0.1", port);
+  client.set_connection_timeout(5, 0);
+  client.set_read_timeout(15, 0);
+
+  {
+    auto res = client.Post(
+        "/v1/audio/speech",
+        R"({"lyrics":"[Verse]\nx\n","extra_params":{"seed":7},"audio_duration":0.1})",
+        "application/json");
+    REQUIRE(res);
+    CHECK(res->status == 200);
+    // THE ASSERTION THE 42-MINUTE JOB NEEDED: the duration on the wire is the
+    // duration the family was asked for, not the family's default.
+    CHECK(seen.audio_duration_s == doctest::Approx(0.1));
+    CHECK(seen.seed == 7);
+  }
+  {
+    auto res = client.Post("/v1/audio/speech", R"({"lyrics":"x","instructions":"Genre: lo-fi"})",
+                           "application/json");
+    REQUIRE(res);
+    CHECK(res->status == 400);
+    CHECK(res->body.find("`instructions` is SGLang-Omni's spelling") != std::string::npos);
+    CHECK(res->body.find("`description`") != std::string::npos);
+  }
+  server_thread.join();  // stops the server, then joins
+}
+
+// The CONTENT keys, at the ROUTE (#1336). The parser cases in
+// `tests/vllm/entrypoints/openai/test_speech_api.cpp` localize each one; this
+// case is the half they cannot see, because what a nested content key costs is
+// paid downstream of the parser: the family never receives it, and the family
+// is where two of the three refusals live.
+TEST_CASE("api_server: /v1/audio/speech reads the CONTENT keys from both placements") {
+  const HfConfig c = MakeConfig();
+  const Qwen3_5MoeWeights w = MakeWeights(c);
+  ServerHarness h(c, w, Fixture());
+
+  vllm::openai::SpeechRequest seen;
+  int64_t calls = 0;
+  vllm::openai::SpeechCapabilities caps;
+  caps.family = "minimax-music3";
+  caps.sample_rate = 44100;
+  caps.channels = 2;
+  caps.requires_reference_audio = false;
+  h.server.set_synthesizer(
+      [&](const vllm::openai::SpeechRequest& req) {
+        seen = req;
+        ++calls;
+        return StereoWav(8);
+      },
+      caps);
+
+  // A nested `text` REACHES the family. That matters because Music3 refuses
+  // `text` by name (`minimax_music3_speech.cpp:440-446`) and its refusal ends
+  // with the words "rather than having it silently dropped": before this
+  // repair, nesting the key produced precisely that drop, with a 200 over it.
+  // The harness synthesizer stands in for the family, so what is asserted here
+  // is that the string ARRIVES, which is what the real refusal needs.
+  ApiServer::DispatchResult r =
+      h.server.handle_audio_speech(R"({"lyrics":"x","extra_params":{"text":"hello"}})");
+  CHECK(r.status == 200);
+  CHECK(calls == 1);
+  CHECK(seen.text == "hello");
+
+  // A nested `language` reaches the family too, where
+  // `minimax_music3_speech.cpp:456-460` refuses it by name.
+  r = h.server.handle_audio_speech(R"({"lyrics":"x","extra_params":{"language":"en"}})");
+  CHECK(r.status == 200);
+  CHECK(seen.language == "en");
+
+  // The rest of the content set, over the route.
+  r = h.server.handle_audio_speech(
+      R"({"extra_params":{"lyrics":"[Verse]\nx\n","description":"pop","model":"minimax-music3"}})");
+  CHECK(r.status == 200);
+  CHECK(seen.lyrics == "[Verse]\nx\n");
+  CHECK(seen.description == "pop");
+  CHECK(seen.model == "minimax-music3");
+
+  // PRECEDENCE is the one behaviour a caller can OBSERVE, and until now it was
+  // pinned by the parser suite alone. `extra_params` wins at the route as well.
+  r = h.server.handle_audio_speech(
+      R"({"lyrics":"top","audio_duration":9.0,"extra_params":{"lyrics":"nested","audio_duration":0.5}})");
+  CHECK(r.status == 200);
+  CHECK(seen.lyrics == "nested");
+  CHECK(seen.audio_duration_s == doctest::Approx(0.5));
+
+  // The #925 boundary at the route: an unknown key in either placement is a
+  // 200, not a 400. A strict whitelist would red these two.
+  calls = 0;
+  CHECK(h.server.handle_audio_speech(R"({"lyrics":"x","some_future_knob":1})").status == 200);
+  CHECK(h.server.handle_audio_speech(R"({"lyrics":"x","extra_params":{"some_future_knob":1}})")
+            .status == 200);
+  CHECK(calls == 2);
+}
+
+// The SECOND-ORDER cost of the nested `reference_audio` drop, which is the one
+// a caller could not have diagnosed. For a family whose
+// `requires_reference_audio()` is true, `api_server.cpp:511-516` refuses BEFORE
+// staging with "`reference_audio` ... is required". A nested clip was dropped
+// by the parser, so the server answered that 400 to a caller who had supplied
+// the clip, naming the field they had just sent.
+TEST_CASE("api_server: a nested `reference_audio` satisfies a family that REQUIRES one") {
+  const HfConfig c = MakeConfig();
+  const Qwen3_5MoeWeights w = MakeWeights(c);
+  ServerHarness h(c, w, Fixture());
+
+  vllm::openai::SpeechRequest seen;
+  int64_t calls = 0;
+  vllm::openai::SpeechCapabilities caps;
+  caps.family = "indextts2";
+  caps.sample_rate = 22050;
+  caps.channels = 1;
+  caps.requires_reference_audio = true;  // IndexTTS-2.5 has no text-only synthesis
+  h.server.set_synthesizer(
+      [&](const vllm::openai::SpeechRequest& req) {
+        seen = req;
+        ++calls;
+        return StereoWav(8);
+      },
+      caps);
+
+  const std::string uri = MonoWavDataUri({16384, -16384}, 22050);
+
+  // The control: with no clip at all the route still refuses, so this case
+  // cannot pass by the guard having been removed.
+  ApiServer::DispatchResult none = h.server.handle_audio_speech(R"({"input":"hi"})");
+  CHECK(none.status == 400);
+  CHECK(none.body.find("is required") != std::string::npos);
+  CHECK(calls == 0);
+
+  // TOP LEVEL: accepted before this repair and after it.
+  ApiServer::DispatchResult flat = h.server.handle_audio_speech(
+      R"({"input":"hi","reference_audio":")" + uri + R"("})");
+  CHECK(flat.status == 200);
+  CHECK(seen.reference_audio.size() == 2);
+
+  // NESTED: a 400 naming the very field the caller sent, until now.
+  ApiServer::DispatchResult nested = h.server.handle_audio_speech(
+      R"({"input":"hi","extra_params":{"reference_audio":")" + uri + R"("}})");
+  CHECK(nested.status == 200);
+  CHECK(nested.body.find("is required") == std::string::npos);
+  REQUIRE(seen.reference_audio.size() == 2);
+  CHECK(seen.reference_sample_rate == 22050);
+  CHECK(seen.reference_audio[0] == doctest::Approx(0.5));
+  CHECK(seen.reference_audio[1] == doctest::Approx(-0.5));
+  CHECK(calls == 2);
+}
+
 // ─── The SPEECH-ONLY server (#672) ──────────────────────────────────────────
 //
 // `vllm-server --speech-model <dir>` with NO `--model` is now a valid
@@ -3156,7 +3569,7 @@ TEST_CASE("api_server: a SPEECH-ONLY server serves speech and 404s the generate 
 
   const int port = server.bind_to_any_port("127.0.0.1");
   REQUIRE(port > 0);
-  std::thread server_thread([&server]() { server.serve(); });
+  ScopedServerThread server_thread(server);
   for (int i = 0; i < 500 && !server.is_running(); ++i)
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   REQUIRE(server.is_running());
@@ -3218,6 +3631,5 @@ TEST_CASE("api_server: a SPEECH-ONLY server serves speech and 404s the generate 
     CHECK(json::parse(models_res->body).at("data").at(0).at("id") == "minimax-music3");
   }
 
-  server.stop();
-  server_thread.join();
+  server_thread.join();  // stops the server, then joins
 }

@@ -57,6 +57,7 @@
 #include <chrono>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>  // ::getpid below; guarded because MSVC has no such header
 #include <thread>
 #endif
 
@@ -67,7 +68,9 @@
 #include "vllm/config/scheduler.h"
 #include "vllm/entrypoints/chat_template.h"
 #include "vllm/config/offload.h"
+#include "vllm/http_transport_abi.h"
 #include "vllm/entrypoints/model_loader.h"
+#include "vllm/transformers_utils/model_resolver.h"
 #include <fstream>
 #include "vllm/entrypoints/openai/server_main.h"
 #include "vllm/entrypoints/openai/api_server.h"
@@ -169,6 +172,18 @@ int RunFfmpegArgv(const std::vector<std::string>& args) {
 
 struct Args {
   std::string model_dir;
+  // ENG-HF-MODEL-DOWNLOAD W4 (#1280): what the user TYPED after `--model`,
+  // kept because the resolver replaces `model_dir` with a cache path and the
+  // served model name still defaults to the name the user asked for, exactly
+  // as vLLM's `served_model_name` defaults to `model` (`arg_utils.py:839`).
+  std::string model_argument;
+  // vLLM's own `--revision` (`arg_utils.py:839`, `config/model.py:183`).
+  // Applies to both HuggingFace forms. There is deliberately no inline
+  // `org/repo@rev` syntax, because vLLM does not spell it that way.
+  std::string revision;
+  // vLLM's own `--download-dir` (`config/model.py:183`): the directory that
+  // holds the `models--org--repo` folders.
+  std::string download_dir;
   std::string host = "0.0.0.0";
   int port = 8000;
   std::string tokenizer_config;  // default: <model_dir>/tokenizer_config.json
@@ -313,6 +328,13 @@ struct Args {
   // an empty map resolve to the 999-per-modality default, so a server started
   // without either flag refuses nothing it used to serve.
   vllm::MultiModalConfig multimodal;
+  // ── The `clip` multimodal projector (row `LOAD-GGUF-MMPROJ`, #821) ────────
+  // llama.cpp's `--mmproj`: the SECOND GGUF file, beside a `.gguf` --model.
+  // Empty (default) == no projector == every load that existed before the row.
+  // Deliberately explicit: a sibling `mmproj*.gguf` is NOT auto-discovered,
+  // because a directory holding two unrelated models must not silently fuse
+  // them.
+  std::string mmproj_path;
 };
 
 // ── Accepted-and-inert serve arguments (SERVE-RECIPE-ARGS, #606) ────────────
@@ -391,6 +413,7 @@ const InertArg* FindAcceptedInertArg(const std::string& flag) {
          "               [--enable-force-include-usage]\n"
          "               [--enable-tokenizer-info-endpoint]\n"
          "               [--enable-server-dev-mode]\n"
+         "               [--revision REF] [--download-dir DIR]\n"
          "               [--verbose]\n"
          "               [--enable-thinking|--no-enable-thinking]\n"
          "               [--enable-log-requests|--disable-log-requests]\n"
@@ -407,6 +430,7 @@ const InertArg* FindAcceptedInertArg(const std::string& flag) {
          "               [--speculative-config '<json>']\n"
          "               [--[no-]language-model-only]\n"
          "               [--limit-mm-per-prompt '<json>']\n"
+         "               [--mmproj <mmproj-*.gguf>]\n"
          "               [--speech-model <checkpoint-dir>] "
          "[--speech-family <name>]\n"
          "               [--speech-device 0|1]\n"
@@ -431,6 +455,11 @@ Args ParseArgs(int argc, char** argv) {
     const std::string flag = argv[i];
     if (flag == "--model") {
       a.model_dir = NextArg(argc, argv, i, argv[0]);
+      a.model_argument = a.model_dir;
+    } else if (flag == "--revision") {
+      a.revision = NextArg(argc, argv, i, argv[0]);
+    } else if (flag == "--download-dir") {
+      a.download_dir = NextArg(argc, argv, i, argv[0]);
     } else if (flag == "--host") {
       a.host = NextArg(argc, argv, i, argv[0]);
     } else if (flag == "--port") {
@@ -441,6 +470,14 @@ Args ParseArgs(int argc, char** argv) {
       a.served_model_name = NextArg(argc, argv, i, argv[0]);
     } else if (flag == "--block-size") {
       a.block_size = std::stoi(NextArg(argc, argv, i, argv[0]));
+      // The attention backends (FLASH_ATTN / ROCM_ATTN get_kv_cache_shape)
+      // enforce block_size % 16 == 0 and the runner validates at init — fail
+      // here with a clear message rather than at engine init.
+      if (a.block_size <= 0 || a.block_size % 16 != 0) {
+        std::cerr << argv[0] << ": --block-size must be a positive multiple of 16"
+                  << " (got " << a.block_size << ")\n";
+        Usage(argv[0], 2);
+      }
     } else if (flag == "--num-blocks") {
       a.num_blocks = std::stoi(NextArg(argc, argv, i, argv[0]));
     } else if (flag == "--gpu-memory-utilization") {
@@ -586,6 +623,15 @@ Args ParseArgs(int argc, char** argv) {
       a.offload_config = NextArg(argc, argv, i, argv[0]);
     } else if (flag == "--speculative-config") {
       a.speculative_config = NextArg(argc, argv, i, argv[0]);
+    } else if (flag == "--mmproj") {
+      // llama.cpp's own spelling for the second file (`b10451`
+      // `tools/mtmd/mtmd-cli.cpp`). NOT validated here: unlike the JSON flags
+      // above, whose value can be refused without touching the disk, this is a
+      // path whose contents decide the answer — and the loader already refuses
+      // it BY NAME before the tokenizer and before any language weight byte, so
+      // a second check here would be a second implementation of the same
+      // refusal rather than an earlier one.
+      a.mmproj_path = NextArg(argc, argv, i, argv[0]);
     } else if (flag == "--language-model-only" ||
                flag == "--no-language-model-only") {
       // arg_utils.py:1276 over a bool field, which _compute_kwargs gives
@@ -773,6 +819,43 @@ Args ParseArgs(int argc, char** argv) {
 }
 
 
+// ENG-HF-MODEL-DOWNLOAD W4 (#1280): turn what the user typed after `--model`
+// into a path the loader can open, fetching the checkpoint when it names a
+// HuggingFace repository.
+//
+// THIS IS THE PRODUCTION CALL SITE, and the ONLY one. `vllm-server` reaches
+// `--model` through `VllmServerMain`, so a repository identifier that is not
+// resolved here is not resolved anywhere. Deleting this call leaves the loader
+// opening `org/repo` as a relative path, which is the behavior this row
+// replaces, and the end-to-end case in
+// `tests/vllm/entrypoints/openai/test_serve_hf_model.cpp` turns red.
+//
+// `vllm-cli` deliberately does NOT reach it. That example includes `vllm.h` and
+// nothing else, because an example is an application binary interface client
+// only, and this row adds no ABI function, so `vllm-cli --model org/repo` still
+// takes a local path. It is recorded under `## Owed` in
+// `.agents/specs/hf-model-download.md`.
+//
+// An existing directory and an existing `.gguf` file come back unchanged and
+// open no socket, so a local run is byte-identical to the one before this row.
+void ResolveModelArgument(Args& a) {
+  if (a.model_dir.empty()) return;
+  vllm::transformers_utils::ModelResolveOptions opts;
+  opts.revision = a.revision;
+  opts.download_dir = a.download_dir;
+  opts.verbose = a.verbose;
+  const std::string resolved =
+      vllm::transformers_utils::ResolveModelPath(a.model_dir, opts);
+  if (resolved == a.model_dir) return;
+  // The SERVED name stays the name the user asked for. Without this the
+  // default would become the 40 character commit directory the cache happens
+  // to hold, and no client could name the model it just started.
+  if (a.served_model_name.empty()) a.served_model_name = a.model_argument;
+  std::cerr << "server: --model " << a.model_argument << " resolved to "
+            << resolved << "\n";
+  a.model_dir = resolved;
+}
+
 }  // namespace
 
 namespace vllm {
@@ -781,11 +864,24 @@ namespace openai {
 
 int VllmServerMain(int argc, char** argv) {
   try {
-    const Args args = ParseArgs(argc, argv);
+    // ENG-HF-MODEL-DOWNLOAD W5 (#1280). BEFORE anything is parsed, bound or
+    // fetched: `CPPHTTPLIB_OPENSSL_SUPPORT` is a whole-header switch that
+    // changes the layout of `httplib::Result`, and this binary carries both a
+    // listener and a hub client compiled from that one header. A build that
+    // defined it for some translation units and not for others LINKS CLEANLY
+    // and then corrupts every response object handed across the seam. Refusing
+    // here is the only place a user finds out before a wrong answer.
+    const std::string transport_mismatch = vllm::HttpTransportAbiMismatch();
+    if (!transport_mismatch.empty()) {
+      std::cerr << transport_mismatch << "\n";
+      return 2;
+    }
+    Args args = ParseArgs(argc, argv);
     if (args.verbose) {
       SetEnvironment("VT_SERVER_VERBOSE", "1");
       std::cerr << "server: verbose stage logging enabled (debug_stages)\n";
     }
+    ResolveModelArgument(args);
     {
       vllm::entrypoints::openai::RequestLogConfig log_cfg;
       log_cfg.enable_log_requests = args.enable_log_requests;
@@ -912,6 +1008,55 @@ int VllmServerMain(int argc, char** argv) {
                                           : dir.parent_path().filename())
             : args.served_model_name;
 
+    // ── --offload-config, PARSED ONCE, AHEAD OF THE TASK BRANCH (#1135) ───────
+    //
+    // It used to be parsed after the branch below, in the text path only, so the
+    // pooling and transcription-only paths built their engine parameters without
+    // it. An embedding server started with `--offload-config` placed its weights
+    // as though the flag were absent and said nothing. That dropped BOTH halves
+    // of the document — vLLM's mirrored `uva`/`prefetch` weight offload and the
+    // vllm.cpp `vllm_cpp` residency extension — and had done so since before the
+    // extension existed.
+    //
+    // ONE PARSE, and every branch below now answers for the document: the text
+    // path and the pooling path take both halves, and the transcription-only
+    // path refuses a non-empty flag rather than dropping it.
+    //
+    // Both halves come out of the SAME string:
+    // `parse_offload_config_json` reads vLLM's three keys and
+    // `parse_weight_residency_extension_json` reads the extension and closes the
+    // document against a typo at every level. Two parsers over one string is what
+    // keeps `include/vllm/config/offload.h` a byte-faithful transcription of
+    // `vllm/config/offload.py` (which has no disk tier) while the operator still
+    // types one flag for one concept.
+    //
+    // Parsing HERE also refuses a malformed document, an unknown key or a
+    // validator violation BEFORE the architecture is peeked and before the
+    // `server: loading model from` line, rather than after both. Upstream's three
+    // backend/field mismatches are WARNINGS in vLLM and stay warnings here.
+    std::optional<vllm::OffloadConfig> parsed_offload_config;
+    std::optional<vllm::WeightResidencyConfig> parsed_weight_residency;
+    if (!args.offload_config.empty()) {
+      vllm::OffloadConfig off_cfg =
+          vllm::parse_offload_config_json(args.offload_config);
+      off_cfg.Validate();
+      for (const std::string& w : off_cfg.warnings) {
+        std::fprintf(stderr, "[vllm.cpp] offload_config: %s\n", w.c_str());
+      }
+      parsed_offload_config = std::move(off_cfg);
+      // ENG-RESIDENCY-CONFIG (#1110): the SAME document also carries the
+      // vllm.cpp-original `vllm_cpp` key, which governs the tier BELOW vLLM's —
+      // weights borrowed out of the file mapping rather than moved to host RAM.
+      //
+      // Its parser REFUSES a key it does not know, which the mirrored parser does
+      // not do, and that refusal is load-bearing: a silently ignored
+      // `{"vllm_cpp":{"mmapp":...}}` starts a server running this tier at its
+      // defaults and is met as an out-of-memory kill instead of an error.
+      vllm::WeightResidencyConfig res_cfg =
+          vllm::parse_weight_residency_extension_json(args.offload_config);
+      if (!res_cfg.empty()) parsed_weight_residency = std::move(res_cfg);
+    }
+
     // ── TASK DISPATCH (ARCH-ONE-SURFACE ROW 1): a model dir whose
     // architectures resolve to a SupportsTranscription-ONLY registration
     // (Parakeet CTC/RNNT/TDT) serves /v1/audio/transcriptions through the ONE
@@ -961,6 +1106,18 @@ int VllmServerMain(int argc, char** argv) {
         embed_params.max_num_seqs = args.max_num_seqs;
         embed_params.max_num_batched_tokens = args.max_num_batched_tokens;
         embed_params.enable_prefix_caching = args.enable_prefix_caching;
+        // #1135: BOTH halves of `--offload-config`, on the same terms as the text
+        // path. This branch reaches `LoadedEngine::FromModelDir`, which installs
+        // the residency document and the weight offloader ahead of every path and
+        // weight operation it performs — so an embedding model is loaded by the
+        // same loader and nothing about pooling makes either half inapplicable.
+        // Before this, both were dropped here in silence.
+        //
+        // The other engine flags this block still drops, `--device` among them,
+        // are #1196. They are the same shape over a wider set and belong to the
+        // row that owns this dispatch.
+        embed_params.offload_config = parsed_offload_config;
+        embed_params.weight_residency = parsed_weight_residency;
         auto loaded_embed = std::shared_ptr<vllm::entrypoints::LoadedEngine>(
             vllm::entrypoints::LoadedEngine::FromModelDir(args.model_dir,
                                                           embed_params));
@@ -1008,6 +1165,33 @@ int VllmServerMain(int argc, char** argv) {
       }
 
       if (transcription_only) {
+        // #1135, and this arm is a REFUSAL rather than a wiring. The
+        // transcription stack has no seam either half of `--offload-config`
+        // could reach: `ParakeetTranscriber::FromDir` builds no `EngineParams`
+        // and calls no `LoadedEngine::FromModelDir`, so this path runs no
+        // `SetWeightResidencyConfig`, no `CreateWeightOffloader`, no GGUF
+        // mapping and no expert slot store. There is no field of either half
+        // that any code here could read.
+        //
+        // AGENTS.md: refuse an unimplemented arm with a message that names the
+        // missing part, and record the arm as owed. Accepting the flag and
+        // warning would leave a server running while it holds a placement
+        // instruction it does not follow, which is the failure #1135 was filed
+        // about. The document is still PARSED above, so a typo in it is refused
+        // here on the same terms as everywhere else.
+        if (!args.offload_config.empty()) {
+          throw std::invalid_argument(
+              "--offload-config is not supported on a transcription-only model "
+              "(" + archs[0] +
+              "). THE MISSING PART: this path serves /v1/audio/transcriptions "
+              "through ParakeetTranscriber, which loads its own weights and "
+              "never builds an engine, so neither vLLM's uva/prefetch weight "
+              "offload nor vllm.cpp's vllm_cpp weight-residency tier has a call "
+              "site on it. Both halves of the document would be accepted and "
+              "then ignored, which is issue #1135. Remove the flag, or serve a "
+              "text-generation or embedding model, which honour it. Tracked as "
+              "issue #1195");
+        }
         std::cerr << "server: transcription-only model (" << archs[0]
                   << "); serving /v1/audio/transcriptions\n";
         auto transcriber =
@@ -1099,20 +1283,17 @@ int VllmServerMain(int argc, char** argv) {
       }
       engine_params.kv_transfer_config = std::move(kv_cfg);
     }
-    // --offload-config: WEIGHT offload (ENG-WEIGHT-OFFLOAD W0b). Empty (default)
-    // leaves the optional unset — the byte-identical no-offload path. Parsed and
-    // VALIDATED here so a malformed document or a validator violation is refused
-    // at startup rather than surfacing later. Upstream's three backend/field
-    // mismatches are WARNINGS in vLLM and stay warnings here.
-    if (!args.offload_config.empty()) {
-      vllm::OffloadConfig off_cfg =
-          vllm::parse_offload_config_json(args.offload_config);
-      off_cfg.Validate();
-      for (const std::string& w : off_cfg.warnings) {
-        std::fprintf(stderr, "[vllm.cpp] offload_config: %s\n", w.c_str());
-      }
-      engine_params.offload_config = std::move(off_cfg);
-    }
+    // --offload-config: WEIGHT offload (ENG-WEIGHT-OFFLOAD W0b) and the
+    // vllm.cpp `vllm_cpp` residency tier (ENG-RESIDENCY-CONFIG). Both halves were
+    // parsed and validated above, ahead of the task branch, so that the pooling
+    // path gets them too and a malformed document is refused before the
+    // architecture peek (#1135). Empty (default) leaves both optionals unset —
+    // the byte-identical no-offload path.
+    engine_params.offload_config = parsed_offload_config;
+    engine_params.weight_residency = parsed_weight_residency;
+    // --mmproj: the second GGUF (LOAD-GGUF-MMPROJ, #821). Empty leaves the
+    // loader on its single-file path, byte-identically.
+    engine_params.mmproj_path = args.mmproj_path;
     // --speculative-config: speculative decoding (SPEC-MTP I5d). Absent (default)
     // leaves the optional unset — the byte-identical no-speculation path. The
     // parse validates method/k here; n_predict + the resolved k are finalized in

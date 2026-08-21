@@ -947,6 +947,22 @@ none of them. Per AGENTS.md that is the worse half of the silent/refused split: 
 naming a missing part is documented debt, and silence is not. Each now has its own issue,
 each saying what is absent, what a future row starts from, and what blocks it.
 
+- [#1467](https://github.com/mudler/vllm.cpp/issues/1467) — the
+  `"ltx2 prompt -> conditioning: the VALUES"` case no longer detects position
+  renumbering, and the note in it that claims 1.10x-of-floor detection is stale.
+  MEASURED while gating [#1458](https://github.com/mudler/vllm.cpp/issues/1458):
+  before `4712dac40` the mutant reached 1.099x the audio floor and reded; at
+  `aeba0de6f` it reaches 0.683x/0.931x while the CORRECT code reaches
+  1.209x/1.313x, so the instrument is INVERTED — the mutant is closer to the
+  oracle than the port is. `4712dac40` is right (it is the only form that
+  reproduces the `silu_and_mul_bf16_8x256` oracle golden bit-exactly); it raised
+  this comparison's noise floor above the defect's signal. #1458 restores a
+  functioning instrument and does not recover the detection, and no constant on
+  this quantity can. A repair owes an instrument with no bf16 accumulation
+  between the defect and the assertion — the integer `positions` contract, or
+  the f32 rope table the generator already names as the right one for this class
+  (`scripts/gen-ltx2-gemma-tower-goldens.py:363-375`).
+
 - [#1093](https://github.com/mudler/vllm.cpp/issues/1093) — `TI2VidTwoStagesPipeline`
   (`ti2vid_two_stages.py:61`). NOT our `distilled_two_stage`: stage 1 is CFG-guided on the
   FULL model (`:247-259`), stage 2 carries the distilled LoRA alone (`:151`), and stage-1
@@ -971,13 +987,20 @@ each saying what is absent, what a future row starts from, and what blocks it.
   negative RoPE shift (`dubit.py:351-353`), which our one ported shift structurally cannot
   produce because it clamps at zero (`ltx2_conditioning.cpp:596-601`), and on the Dub-It
   IC-LoRA.
-- [#1096](https://github.com/mudler/vllm.cpp/issues/1096) —
-  `KeyframeInterpolationPipeline` (`keyframe_interpolation.py`). `Ltx2ConditionVideoByKeyframe`
-  IS served and mutation-proven reachable (`ltx25-token-append.md:270`). Blocked on a
-  multi-keyframe request surface — the ABI carries two scalar slots
-  (`include/vllm.h:934-935`) against upstream's repeatable `--image PATH FRAME_IDX STRENGTH`
-  — and on a per-sigma guided denoiser, ours being fixed per phase
-  (`ltx2_pipeline.cpp:1069-1070`) and audio-only.
+- ~~[#1096](https://github.com/mudler/vllm.cpp/issues/1096) —
+  `KeyframeInterpolationPipeline` (`keyframe_interpolation.py`).~~ LANDED as row
+  `LTX25-KEYFRAME-INTERP` ([`ltx25-keyframe-interp.md`](ltx25-keyframe-interp.md)),
+  and two of the three blockers recorded here were stale by the time it was picked
+  up. The per-sigma denoiser resolves ONE guider on this pipeline's default path —
+  `main()` passes plain `MultiModalGuiderParams`, so
+  `create_multimodal_guider_factory` takes `constant()` and builds a single
+  `(inf, params)` bin (`guiders.py:312-315`) — and both checkpoints are on the NAS
+  with #1148 closed at `40a796aa9`. The multi-keyframe surface is real, is NOT
+  what makes this pipeline different, and is now
+  [#1187](https://github.com/mudler/vllm.cpp/issues/1187). What WAS different, and
+  is named in none of the above, is the conditioning BUILDER: `:211` and `:260`
+  call `image_conditionings_by_adding_guiding_latent` (`helpers.py:343-367`), so
+  frame 0 is a keyframe that APPENDS rather than a latent that REPLACES.
 - [#1097](https://github.com/mudler/vllm.cpp/issues/1097) — `ltx2-gen` silently discards a
   second `--lora`, and `kKnownLoadExtras`' own comment still says "nine of these ten" over a
   twelve-entry array. Product code, so filed rather than fixed in this records change.

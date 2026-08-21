@@ -3761,3 +3761,493 @@ TEST_CASE("ltx2 ti2vid: all four generations resolve and nothing else does") {
   CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("ti2vid", "2.5"));
   CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("ti2vid_two_stage_hq", "2.5"));
 }
+
+// ─── LTX25-KEYFRAME-INTERP (#1096) ───────────────────────────────────────────
+
+TEST_CASE("ltx2 keyframe: the recipe is the INTERPOLATION pipeline, not the plain two-stage one") {
+  // `KeyframeInterpolationPipeline` (keyframe_interpolation.py:55 @ fd4ded7f).
+  // Row LTX25-KEYFRAME-INTERP, issue #1096.
+  //
+  // THIS PIPELINE AND `ti2vid_two_stage` SHARE A PARSER, A STAGE LAYOUT, A
+  // STEPPER AND A SIGMA SET, and they disagree in exactly two fields. Both
+  // disagreements render either way: an interpolation that overwrites its first
+  // keyframe, and a soundtrack that is finite, the right length, at the right
+  // sample rate and the wrong take. So the controls below are drawn from THAT
+  // recipe above all, and no assertion can pass by two values coinciding.
+  const vllm::Ltx2PipelineRecipe kf =
+      vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", "2.5");
+  const vllm::Ltx2PipelineRecipe ti2v =
+      vllm::ResolveLtx2PipelineRecipe("ti2vid_two_stage", "2.5");
+  const vllm::Ltx2PipelineRecipe res2s =
+      vllm::ResolveLtx2PipelineRecipe("res2s_two_stage", "2.5");
+  const vllm::Ltx2PipelineRecipe a2v =
+      vllm::ResolveLtx2PipelineRecipe("a2vid_two_stage", "2.5");
+  const vllm::Ltx2PipelineRecipe distilled =
+      vllm::ResolveLtx2PipelineRecipe("distilled_two_stage", "2.5");
+  const vllm::Ltx2PipelineRecipe one = vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5");
+  REQUIRE(kf.phases.size() == 2u);
+
+  // ── THE FIELD THAT IS THIS PIPELINE'S NAME ────────────────────────────────
+  //
+  // `:211` and `:260` call `image_conditionings_by_adding_guiding_latent`
+  // (helpers.py:343-367), which has NO branch: every image, `frame_idx == 0`
+  // included, becomes a `VideoConditionByKeyframeIndex` that APPENDS. Every
+  // other pipeline calls `combined_image_conditionings` (:272-308), whose
+  // `frame_idx == 0` arm is a `VideoConditionByLatentIndex` that REPLACES.
+  //
+  // FIVE CONTROLS, because the default is `kCombined` and an assertion that only
+  // read this recipe would pass on a build where the field exists and nothing
+  // sets it — and a single control would pass on a build where the default had
+  // been flipped the other way instead.
+  CHECK(kf.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kAddGuidingLatent);
+  CHECK(ti2v.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kCombined);
+  CHECK(res2s.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kCombined);
+  CHECK(a2v.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kCombined);
+  CHECK(distilled.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kCombined);
+  CHECK(one.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kCombined);
+
+  // ── stage 1 (keyframe_interpolation.py:198-252) ───────────────────────────
+  const vllm::Ltx2PhaseRecipe& s1 = kf.phases[0];
+  CHECK(s1.name == "stage_1");
+  // `width // 2, height // 2` (:203-209), which is also what makes
+  // `assert_resolution(is_two_stage=True)` (:170) the 64-divisor arm here.
+  CHECK(s1.spatial_downscale == 2);
+  CHECK(kf.max_spatial_downscale() == 2);
+  CHECK(s1.input_transform == vllm::Ltx2PhaseInputTransform::kInitial);
+  // `self._scheduler.execute(steps=num_inference_steps)` (:199-200): DERIVED at
+  // run time, against `distilled_two_stage`'s frozen 9-sigma stage 1.
+  CHECK(s1.sigmas.empty());
+  CHECK(s1.use_official_sigma_schedule);
+  CHECK_FALSE(distilled.phases[0].sigmas.empty());  // the control
+
+  // THE SCHEDULE ANCHOR. That same `execute` call passes NO latent, so
+  // `schedulers.py:31` resolves `tokens` to `default_number_of_tokens` = 4096
+  // rather than to the target grid. `ti2vid_two_stages_hq.py:267` — the res_2s
+  // recipe — is the ONE upstream site that passes `latent=empty_latent`, and it
+  // is the control here precisely because it is the exception. That three other
+  // shipped arms still derive from the target grid is #1150, not this row.
+  CHECK(s1.schedule_tokens == vllm::Ltx2PhaseScheduleTokens::kSchedulerDefault);
+  CHECK(ti2v.phases[0].schedule_tokens == vllm::Ltx2PhaseScheduleTokens::kSchedulerDefault);
+  CHECK(res2s.phases[0].schedule_tokens == vllm::Ltx2PhaseScheduleTokens::kTargetLatent);
+  // Nothing that predates this row moved.
+  CHECK(one.phases[0].schedule_tokens == vllm::Ltx2PhaseScheduleTokens::kTargetLatent);
+  CHECK(a2v.phases[0].schedule_tokens == vllm::Ltx2PhaseScheduleTokens::kTargetLatent);
+
+  // `ModalitySpec.noise_scale` defaults to 1.0 (utils/types.py:110) and :244-247
+  // sets none, so stage 1 starts from pure noise. #1013: at 0.0 the state stays
+  // as `create_initial_state` wrote it, which with no initial latent is all
+  // zeros, and a zero-initialised denoise still returns a finite clip.
+  CHECK(s1.noise_scale == 1.0);
+  // NEITHER `self.stage_1(...)` (:231-252) NOR `self.stage_2(...)` (:271-290)
+  // passes `stepper` or `loop`, so `DiffusionStage.__call__`'s own defaults
+  // apply — `euler_denoising_loop` and `EulerDiffusionStep()`
+  // (utils/blocks.py:524-527). Two steppers reach this arm through nothing and
+  // both are asserted beside it: `distilled.py:76-84` selects the ANCESTRAL one
+  // on this very generation, and the HQ pipeline hands BOTH its stages
+  // `Res2sDiffusionStep()` (ti2vid_two_stages_hq.py:258).
+  CHECK(s1.stepper == vllm::Ltx2StepperKind::kEuler);
+  CHECK(distilled.phases[0].stepper == vllm::Ltx2StepperKind::kEulerAncestral);
+  CHECK(res2s.phases[0].stepper == vllm::Ltx2StepperKind::kRes2s);
+  CHECK(s1.stepper_eta == 0.0);
+  CHECK(s1.noise_seed_offset == 0);
+  // `loras=tuple(loras)` (:104) against stage 2's `stage_2_loras` (:111, passed
+  // at :116) — stage 1 runs the UNADAPTED model, which upstream's own pipeline
+  // table calls `Full + distilled LoRA` (packages/ltx-pipelines/CLAUDE.md:24)
+  // and which is the reason #1118 blocked this row. The mirror-image control is
+  // `res2s_two_stage`, which upstream fuses on BOTH stages.
+  CHECK(s1.loras == vllm::Ltx2PhaseLoraScope::kNoAdapters);
+  CHECK(res2s.phases[0].loras == vllm::Ltx2PhaseLoraScope::kAllAdapters);
+  // `FactoryGuidedDenoiser(...)` (:232-237). On this pipeline's DEFAULT path it
+  // resolves ONE guider for the whole schedule: `main()` passes plain
+  // `MultiModalGuiderParams` (:325-340), so `create_multimodal_guider_factory`
+  // takes `MultiModalGuiderFactory.constant` (guiders.py:360), which builds a
+  // single `(inf, params)` bin (:312-315). #1096 named a per-sigma denoiser as a
+  // blocker without deriving that; #1187 owns the sigma-BINNED arm.
+  CHECK(s1.denoiser == vllm::Ltx2PhaseDenoiser::kGuided);
+  // `:301` selects `default_2_stage_arg_parser`, which carries the six video
+  // guider flags (utils/args.py:947-1006), so an override is legal.
+  CHECK(s1.allow_guidance_override);
+  // The video guider is the params table's row, shared with `one_stage` so a
+  // change to the table moves both...
+  CHECK(s1.video_guidance.cfg_scale == one.phases[0].video_guidance.cfg_scale);
+  CHECK(s1.video_guidance.stg_scale == one.phases[0].video_guidance.stg_scale);
+  CHECK(s1.video_guidance.rescale_scale == one.phases[0].video_guidance.rescale_scale);
+  CHECK(s1.video_guidance.modality_scale == one.phases[0].video_guidance.modality_scale);
+  CHECK(s1.video_guidance.stg_blocks == one.phases[0].video_guidance.stg_blocks);
+  // ...and the values themselves, so this case still says which arm it is on if
+  // both were changed together. `rescale_scale = 0.7` is what makes the x0-space
+  // question live on the DEFAULT path (guiders.py:268-271, #1039/#1092).
+  CHECK(s1.video_guidance.cfg_scale == 3.0);
+  CHECK(s1.video_guidance.stg_scale == 1.0);
+  CHECK(s1.video_guidance.rescale_scale == 0.7);
+  CHECK(s1.video_guidance.modality_scale == 3.0);
+
+  // THE AUDIO GUIDER IS THE TABLE'S ROW, as on `ti2vid_two_stage` and NOT as on
+  // `a2vid_two_stage`. This pipeline GENERATES its soundtrack and :226-229 hands
+  // the audio guider factory the real params, filled from six `--audio-*` /
+  // `--v2a-guidance-scale` flags at :333-340. A2Vid's audio stream is the
+  // caller's FROZEN take, so it builds a default `MultiModalGuiderParams()`
+  // (a2vid_two_stage.py:237-239) and its cfg 7.0 would buy an unconditional
+  // forward for a delta multiplied into a latent the sampler cannot move.
+  CHECK(s1.audio_guidance.cfg_scale == one.phases[0].audio_guidance.cfg_scale);
+  CHECK(s1.audio_guidance.cfg_scale == 7.0);
+  CHECK(s1.audio_guidance.DoUnconditionalGeneration());
+  CHECK(a2v.phases[0].audio_guidance.cfg_scale == 1.0);  // the control
+  CHECK_FALSE(a2v.phases[0].audio_guidance.DoUnconditionalGeneration());
+
+  // ── stage 2 (keyframe_interpolation.py:254-290) ───────────────────────────
+  const vllm::Ltx2PhaseRecipe& s2 = kf.phases[1];
+  CHECK(s2.name == "stage_2");
+  CHECK(s2.spatial_downscale == 1);
+  // `self.upsampler(video_state.latent[:1])` (:255).
+  CHECK(s2.input_transform == vllm::Ltx2PhaseInputTransform::kSpatialUpsample);
+  // `stage_2_sigmas: torch.Tensor = STAGE_2_DISTILLED_SIGMAS` (:166) — a DEFAULT
+  // ARGUMENT, so the schedule is frozen for this phase even though stage 1's is
+  // not. Byte for byte the distilled recipe's stage 2 (utils/constants.py:19-23).
+  CHECK(s2.sigmas == distilled.phases[1].sigmas);
+  CHECK_FALSE(s2.use_official_sigma_schedule);
+  REQUIRE(s2.sigmas.size() == 4u);
+  // `noise_scale=stage_2_sigmas[0].item()` on BOTH modality specs (:282, :287) —
+  // the upsampled latent is only valid at the noise level this stage starts from.
+  CHECK(s2.noise_scale == s2.sigmas.front());
+  CHECK(s2.stepper == vllm::Ltx2StepperKind::kEuler);
+  CHECK(res2s.phases[1].stepper == vllm::Ltx2StepperKind::kRes2s);  // the control
+  // `SimpleDenoiser(v_context_p, a_context_p)` (:272) takes no params at all.
+  CHECK(s2.denoiser == vllm::Ltx2PhaseDenoiser::kSimple);
+  // ...AND the override is still ALLOWED, which is the pair `allow_guidance_
+  // override` alone cannot express: the flags DO exist on this pipeline's
+  // parser, so a request carrying one is legal — it reaches stage 1's guider and
+  // nothing else. `kSimple` above is what makes it inert here. The control on
+  // the other polarity is `distilled_two_stage`, whose parser never adds the
+  // flags (utils/args.py:1188) so both of its phases REFUSE.
+  CHECK(s2.allow_guidance_override);
+  CHECK_FALSE(distilled.phases[1].allow_guidance_override);
+  // Left at the default: `stage_2_loras` (:111) is every adapter this engine
+  // holds, and :116 is where stage 2 takes it.
+  CHECK(s2.loras == vllm::Ltx2PhaseLoraScope::kAllAdapters);
+  CHECK_FALSE(s2.video_guidance.DoUnconditionalGeneration());
+  CHECK_FALSE(s2.video_guidance.DoPerturbedGeneration());
+
+  // ── the recipe (keyframe_interpolation.py:147-168, :297-358) ──────────────
+  // `default_2_stage_arg_parser` sets the request geometry to the FINAL output
+  // (utils/args.py:1128); stage 1 runs at half through `spatial_downscale`.
+  CHECK(kf.height == ti2v.height);
+  CHECK(kf.width == ti2v.width);
+  CHECK(kf.num_frames == ti2v.num_frames);
+  CHECK(kf.frame_rate == ti2v.frame_rate);
+  CHECK(kf.num_inference_steps == one.num_inference_steps);
+  CHECK(kf.default_image_crf == one.default_image_crf);
+  CHECK(kf.video_output_phase == 1);
+
+  // THE SECOND FIELD THAT SEPARATES THIS FROM `ti2vid_two_stage`, and it is the
+  // one most likely to be copied from it. `:271` binds `video_state,
+  // audio_state = self.stage_2(...)` and `:293` decodes that name, so stage 2's
+  // soundtrack is what LEAVES. `ti2vid_two_stages.py:289` binds `video_state, _`
+  // under its own comment at `:287-288` — "Stage 2 refines video only; discard
+  // its audio" — and decodes the name `:247` bound instead. There is no comment
+  // either way in this file; the BINDING is the statement.
+  //
+  // Writing 0 here would decode stage 1's take: finite, the right length, at the
+  // right sample rate, and the wrong one. The controls are two-against-two, so
+  // this cannot pass because every two-stage recipe happens to agree.
+  CHECK(kf.audio_output_phase == 1);
+  CHECK(a2v.audio_output_phase == 1);
+  CHECK(ti2v.audio_output_phase == 0);
+  CHECK(res2s.audio_output_phase == 0);
+  CHECK_FALSE(kf.audio_only);
+
+  // Stage 1's schedule IS the step count (:200), so `--num-inference-steps` is
+  // honoured; stage 2 carries its own explicit sigmas and is unaffected either
+  // way, exactly as upstream's two parameters are.
+  CHECK(kf.allow_request_sigmas);
+  CHECK_FALSE(kf.fixed_num_inference_steps);
+  CHECK_FALSE(distilled.allow_request_sigmas);  // the control
+  // `:150` takes a negative prompt and :178-186 encodes `[prompt,
+  // negative_prompt]` into the two guider factories' `negative_context`.
+  CHECK(kf.allow_negative_prompt);
+  CHECK(kf.negative_prompt == one.negative_prompt);
+  CHECK_FALSE(kf.negative_prompt.empty());
+  CHECK_FALSE(distilled.allow_negative_prompt);  // the control
+  // No `__call__` parameter carries an initial latent (:147-168): stage 1's
+  // video spec has none and stage 2's is the upsampler's output.
+  CHECK_FALSE(kf.allow_request_latents);
+  // `distilled_lora` is POSITIONAL and non-defaulted (:68), and
+  // `--distilled-lora` is `required=True` on the parser :301 selects
+  // (utils/args.py:1140-1155).
+  CHECK(kf.requires_distilled_lora);
+  // ...but there is NO `--audio-path` on this pipeline: the soundtrack is
+  // generated, not supplied. This is the field that separates the recipe from
+  // `a2vid_two_stage`, which sets both flags, so asserting only the first would
+  // pass on a copy of that recipe.
+  CHECK_FALSE(kf.requires_audio_input);
+  CHECK(a2v.requires_audio_input);  // the control
+  CHECK(a2v.requires_distilled_lora);
+  CHECK(ti2v.requires_distilled_lora);
+  CHECK_FALSE(one.requires_distilled_lora);
+  CHECK_FALSE(distilled.requires_distilled_lora);
+}
+
+TEST_CASE("ltx2 keyframe: all four generations resolve and nothing else does") {
+  // FOUR ROWS, mirroring `ti2vid_two_stage` and `a2vid_two_stage` line for line
+  // and for the same reason: `main()` calls `resolve_cli_params()` (:300) and
+  // hands the result to `default_2_stage_arg_parser(params=params)` (:301), so
+  // the generation comes off the checkpoint. There is no "which generations
+  // support this pipeline" question upstream, so restricting these rows would be
+  // a local invention.
+  for (const char* version : {"2", "2.3", "2.4", "2.5"}) {
+    INFO("version = ", std::string(version));
+    CHECK_NOTHROW((void)vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", version));
+    const vllm::Ltx2PipelineRecipe r =
+        vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", version);
+    REQUIRE(r.phases.size() == 2u);
+    CHECK(r.image_conditioning == vllm::Ltx2ImageConditioningBuilder::kAddGuidingLatent);
+    CHECK(r.requires_distilled_lora);
+    CHECK_FALSE(r.requires_audio_input);
+    CHECK(r.phases[0].spatial_downscale == 2);
+    CHECK(r.phases[0].stepper == vllm::Ltx2StepperKind::kEuler);
+    CHECK(r.phases[0].loras == vllm::Ltx2PhaseLoraScope::kNoAdapters);
+    CHECK(r.phases[0].schedule_tokens == vllm::Ltx2PhaseScheduleTokens::kSchedulerDefault);
+    CHECK(r.audio_output_phase == 1);
+  }
+  // The 2.4 and 2.5 rows take Lightricks' negative prompt and the older two take
+  // vLLM-Omni's, which is the split every four-key row makes: the negative
+  // prompt travels with the GENERATION, not with the pipeline.
+  CHECK(vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", "2.5").negative_prompt ==
+        vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5").negative_prompt);
+  CHECK(vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", "2").negative_prompt ==
+        vllm::ResolveLtx2PipelineRecipe("one_stage", "2").negative_prompt);
+  CHECK(vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", "2.5").negative_prompt !=
+        vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", "2").negative_prompt);
+
+  // A version the table does not carry is REFUSED by name, never defaulted onto
+  // a neighbouring generation's guidance scales.
+  CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", "2.6"));
+  CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation", ""));
+  // ...and so are the near-miss spellings. This kind is upstream's FILE and
+  // CLASS name, unlike every `*_two_stage` kind in the table, so the plausible
+  // wrong spellings are the ones that assume the table's convention rather than
+  // upstream's.
+  CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("keyframe_interpolation_two_stage", "2.5"));
+  CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("keyframe_two_stage", "2.5"));
+  CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("keyframe", "2.5"));
+  CHECK_THROWS((void)vllm::ResolveLtx2PipelineRecipe("keyframe_interp", "2.5"));
+}
+
+// ─── the CHECKPOINT CLASS (row LTX25-CHECKPOINT-CLASS, issue #1137) ─────────
+//
+// The defect this gates is SILENCE. A distilled transformer on a `Full` arm
+// loads, every shape matches, and the sampler runs a schedule the weights were
+// never trained for — returning a clip of the requested size, frame count and
+// sample rate. No pixel, RMS, windowed-energy or spectral check can see it.
+//
+// This file gates the TABLE and the DECISION. It does not gate reachability:
+// `test_ltx2_video` enters through `vllm_video_engine_load` for that, because a
+// case that calls `Ltx2CheckpointClassRefusal` by hand proves the function works
+// and never that anything reaches it.
+
+TEST_CASE("ltx2 checkpoint class: every resolving (kind, version) pair carries upstream's row") {
+  // Upstream's `Model` column, one row per pipeline
+  // (ltx-pipelines/CLAUDE.md:17-30 at fd4ded7f), reduced to its CHECKPOINT half.
+  // The LoRA half of a `Full + distilled LoRA` cell is `requires_distilled_lora`
+  // and is a different field.
+  struct Expected {
+    const char* kind;
+    vllm::Ltx2RequiredCheckpointClass required;
+  };
+  const Expected table[] = {
+      // `TI2VidOneStagePipeline`, `Full`.
+      {"one_stage", vllm::Ltx2RequiredCheckpointClass::kFull},
+      // `T2AOneStagePipeline`, `Full`, restated at t2a_one_stage.py:50.
+      {"t2a_one_stage", vllm::Ltx2RequiredCheckpointClass::kFull},
+      // `TI2VidTwoStagesPipeline`, `Full + distilled LoRA`.
+      {"ti2vid_two_stage", vllm::Ltx2RequiredCheckpointClass::kFull},
+      // `TI2VidTwoStagesHQPipeline`, `Full + distilled LoRA (both stages)`.
+      {"res2s_two_stage", vllm::Ltx2RequiredCheckpointClass::kFull},
+      // `A2VidPipelineTwoStage`, `Full + distilled LoRA`.
+      {"a2vid_two_stage", vllm::Ltx2RequiredCheckpointClass::kFull},
+      // `KeyframeInterpolationPipeline`, `Full + distilled LoRA`.
+      {"keyframe_interpolation", vllm::Ltx2RequiredCheckpointClass::kFull},
+      // `DFRPipeline`, `Keyframe-slot SFT + distilled LoRA`. NOT the distilled
+      // transformer, although this recipe runs the distilled sigmas.
+      {"dfr", vllm::Ltx2RequiredCheckpointClass::kKeyframeSlotSft},
+      // `DistilledPipeline`, `Distilled only`.
+      {"distilled_two_stage", vllm::Ltx2RequiredCheckpointClass::kDistilled},
+      // `RetakePipeline`, `Full or distilled`.
+      {"retake", vllm::Ltx2RequiredCheckpointClass::kFullOrDistilled},
+      // vLLM-Omni's `_PIPELINE_RECIPES` (ltx2_recipes.py:160-167 at a4ea67a2)
+      // has no `Model` column and Lightricks' table has no `dmd2` row, so
+      // NOTHING upstream states a class for it.
+      {"dmd2", vllm::Ltx2RequiredCheckpointClass::kUnstated},
+  };
+
+  // THE CROSS PRODUCT, not the table's own pairs, so a kind that gained a
+  // version row without gaining a requirement lands here.
+  const char* const versions[] = {"2", "2.3", "2.4", "2.5"};
+  int64_t resolved = 0;
+  for (const Expected& row : table) {
+    for (const char* version : versions) {
+      INFO("kind = " << row.kind << " version = " << version);
+      vllm::Ltx2PipelineRecipe recipe;
+      bool ok = false;
+      try {
+        recipe = vllm::ResolveLtx2PipelineRecipe(row.kind, version);
+        ok = true;
+      } catch (const std::exception&) {
+        ok = false;
+      }
+      if (!ok) continue;
+      ++resolved;
+      CHECK(recipe.checkpoint_class == row.required);
+    }
+  }
+  // The COUNT, so a new (kind, version) row cannot be added without this case
+  // being read. 4 one_stage + 4 t2a + 4 ti2vid + 1 res2s + 4 a2vid + 4 keyframe
+  // + 1 dfr + 2 distilled + 2 retake + 2 dmd2.
+  CHECK(resolved == 28);
+
+  // The CONTROLS: the four requirement values the table actually uses are all
+  // distinct, so a build that collapsed the enum onto one value fails here even
+  // though every row above would still compare equal to itself.
+  CHECK(vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5").checkpoint_class !=
+        vllm::ResolveLtx2PipelineRecipe("distilled_two_stage", "2.5").checkpoint_class);
+  CHECK(vllm::ResolveLtx2PipelineRecipe("dfr", "2.5").checkpoint_class !=
+        vllm::ResolveLtx2PipelineRecipe("distilled_two_stage", "2.5").checkpoint_class);
+  CHECK(vllm::ResolveLtx2PipelineRecipe("retake", "2.5").checkpoint_class !=
+        vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5").checkpoint_class);
+  CHECK(vllm::ResolveLtx2PipelineRecipe("dmd2", "2").checkpoint_class !=
+        vllm::ResolveLtx2PipelineRecipe("retake", "2").checkpoint_class);
+
+  // And the CHECKPOINT half is not the ADAPTER half. `a2vid_two_stage` needs
+  // both; `one_stage` needs the class and no adapter. A build that keyed the new
+  // field off `requires_distilled_lora` fails this pair.
+  CHECK(vllm::ResolveLtx2PipelineRecipe("a2vid_two_stage", "2.5").requires_distilled_lora);
+  CHECK_FALSE(vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5").requires_distilled_lora);
+  CHECK(vllm::ResolveLtx2PipelineRecipe("a2vid_two_stage", "2.5").checkpoint_class ==
+        vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5").checkpoint_class);
+}
+
+TEST_CASE("ltx2 checkpoint class: the three spellings parse and nothing else does") {
+  vllm::Ltx2CheckpointClass parsed = vllm::Ltx2CheckpointClass::kDistilled;
+  CHECK(vllm::Ltx2ParseCheckpointClass("full", &parsed));
+  CHECK(parsed == vllm::Ltx2CheckpointClass::kFull);
+  CHECK(vllm::Ltx2ParseCheckpointClass("distilled", &parsed));
+  CHECK(parsed == vllm::Ltx2CheckpointClass::kDistilled);
+  CHECK(vllm::Ltx2ParseCheckpointClass("keyframe_slot_sft", &parsed));
+  CHECK(parsed == vllm::Ltx2CheckpointClass::kKeyframeSlotSft);
+
+  // A rejected value leaves `*out` untouched, so a caller that ignores the
+  // return value cannot silently read a class it never supplied.
+  parsed = vllm::Ltx2CheckpointClass::kKeyframeSlotSft;
+  for (const char* text : {"", "Full", "DISTILLED", "dev", "distil", "keyframe", "full "}) {
+    INFO("text = " << text);
+    CHECK_FALSE(vllm::Ltx2ParseCheckpointClass(text, &parsed));
+    CHECK(parsed == vllm::Ltx2CheckpointClass::kKeyframeSlotSft);
+  }
+
+  // The names ROUND-TRIP, which is what makes a refusal quoting a class
+  // actionable: the string it prints is a string the parser takes back.
+  for (const vllm::Ltx2CheckpointClass value :
+       {vllm::Ltx2CheckpointClass::kFull, vllm::Ltx2CheckpointClass::kDistilled,
+        vllm::Ltx2CheckpointClass::kKeyframeSlotSft}) {
+    vllm::Ltx2CheckpointClass back = vllm::Ltx2CheckpointClass::kFull;
+    REQUIRE(vllm::Ltx2ParseCheckpointClass(vllm::Ltx2CheckpointClassName(value), &back));
+    CHECK(back == value);
+    // ...and the listing a message prints names every one of them, so a fourth
+    // class cannot be added without the messages following it.
+    CHECK(vllm::Ltx2CheckpointClassSpellings().find(vllm::Ltx2CheckpointClassName(value)) !=
+          std::string::npos);
+  }
+}
+
+TEST_CASE("ltx2 checkpoint class: the refusal accepts exactly the upstream combinations") {
+  const vllm::Ltx2PipelineRecipe full = vllm::ResolveLtx2PipelineRecipe("one_stage", "2.5");
+  const vllm::Ltx2PipelineRecipe distilled =
+      vllm::ResolveLtx2PipelineRecipe("distilled_two_stage", "2.5");
+  const vllm::Ltx2PipelineRecipe sft = vllm::ResolveLtx2PipelineRecipe("dfr", "2.5");
+  const vllm::Ltx2PipelineRecipe either = vllm::ResolveLtx2PipelineRecipe("retake", "2.5");
+  const vllm::Ltx2PipelineRecipe unstated = vllm::ResolveLtx2PipelineRecipe("dmd2", "2");
+
+  // ACCEPTED. Empty string means "this load may proceed".
+  CHECK(vllm::Ltx2CheckpointClassRefusal(full, "one_stage", "full", false).empty());
+  CHECK(vllm::Ltx2CheckpointClassRefusal(distilled, "distilled_two_stage", "distilled", false)
+            .empty());
+  CHECK(vllm::Ltx2CheckpointClassRefusal(sft, "dfr", "keyframe_slot_sft", false).empty());
+  CHECK(vllm::Ltx2CheckpointClassRefusal(either, "retake", "distilled", false).empty());
+  // `Full or distilled` on the FULL arm needs the adapter — retake.py:71-73.
+  CHECK(vllm::Ltx2CheckpointClassRefusal(either, "retake", "full", true).empty());
+  // `dmd2` is the one kind no reference states a class for, so it accepts an
+  // absent declaration as well as a present one.
+  CHECK(vllm::Ltx2CheckpointClassRefusal(unstated, "dmd2", "", false).empty());
+  CHECK(vllm::Ltx2CheckpointClassRefusal(unstated, "dmd2", "full", false).empty());
+
+  // REFUSED — the mismatch. The message names BOTH classes, which is what makes
+  // it actionable rather than a bare "wrong checkpoint".
+  {
+    const std::string msg = vllm::Ltx2CheckpointClassRefusal(full, "one_stage", "distilled", false);
+    INFO(msg);
+    REQUIRE_FALSE(msg.empty());
+    CHECK(msg.find("'distilled'") != std::string::npos);      // what was supplied
+    CHECK(msg.find("FULL") != std::string::npos);             // what is needed
+    CHECK(msg.find("one_stage") != std::string::npos);        // which pipeline
+    CHECK(msg.find("CLAUDE.md:17-30") != std::string::npos);  // the upstream row
+  }
+  // ...and the other polarity, so the check is not a one-way test.
+  {
+    const std::string msg =
+        vllm::Ltx2CheckpointClassRefusal(distilled, "distilled_two_stage", "full", false);
+    INFO(msg);
+    REQUIRE_FALSE(msg.empty());
+    CHECK(msg.find("'full'") != std::string::npos);
+    CHECK(msg.find("DISTILLED") != std::string::npos);
+  }
+  // A `full` transformer is NOT a keyframe-slot SFT one, although upstream's DFR
+  // schedule is the distilled one. Both near misses refuse.
+  CHECK_FALSE(vllm::Ltx2CheckpointClassRefusal(sft, "dfr", "full", true).empty());
+  CHECK_FALSE(vllm::Ltx2CheckpointClassRefusal(sft, "dfr", "distilled", true).empty());
+
+  // REFUSED — the ABSENT declaration. This is the case that carries the whole
+  // reason: the engine cannot detect the class, so it asks. The message has to
+  // name the extra, say why there is no detector, and give the spellings.
+  {
+    const std::string msg = vllm::Ltx2CheckpointClassRefusal(full, "one_stage", "", false);
+    INFO(msg);
+    REQUIRE_FALSE(msg.empty());
+    CHECK(msg.find("checkpoint_class") != std::string::npos);
+    CHECK(msg.find("42,018,190,584") != std::string::npos);  // the measured size tie
+    CHECK(msg.find("byte-identical") != std::string::npos);  // the measured config tie
+    // The measured HEADER tie, which is the strongest of the three and the one
+    // a reader can act on: the two bf16 files declare the same 677,616 header
+    // bytes over the same 4349 tensor names. Pinned because the message is the
+    // only place this measurement reaches an operator, and an unpinned number
+    // in a string drifts silently.
+    CHECK(msg.find("677,616") != std::string::npos);
+    CHECK(msg.find("4349") != std::string::npos);
+    CHECK(msg.find("'full'") != std::string::npos);
+    CHECK(msg.find("'distilled'") != std::string::npos);
+    CHECK(msg.find("'keyframe_slot_sft'") != std::string::npos);
+  }
+
+  // REFUSED — an unparseable value. Refused rather than defaulted, because every
+  // default here picks a sampling regime for the caller.
+  {
+    const std::string msg = vllm::Ltx2CheckpointClassRefusal(full, "one_stage", "dev", false);
+    INFO(msg);
+    REQUIRE_FALSE(msg.empty());
+    CHECK(msg.find("'dev'") != std::string::npos);
+    CHECK(msg.find("checkpoint_class") != std::string::npos);
+    // NOT the mismatch message: that one would name a class this engine knows.
+    CHECK(msg.find("42,018,190,584") == std::string::npos);
+  }
+
+  // REFUSED — `Full or distilled` declared FULL with no adapter. Upstream's own
+  // condition, and the reason the permissive enumerator is not an escape hatch.
+  {
+    const std::string msg = vllm::Ltx2CheckpointClassRefusal(either, "retake", "full", false);
+    INFO(msg);
+    REQUIRE_FALSE(msg.empty());
+    CHECK(msg.find("retake.py:71-73") != std::string::npos);
+    CHECK(msg.find("lora_path") != std::string::npos);
+    // The adapter is what flips it, and nothing else: same recipe, same class.
+    CHECK(vllm::Ltx2CheckpointClassRefusal(either, "retake", "full", true).empty());
+  }
+}

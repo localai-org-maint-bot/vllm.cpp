@@ -674,7 +674,7 @@ enum class Ltx2PhaseLoraScope {
 //   retake.py:287                no latent      our `retake`, non-distilled arm
 //   a2vid_two_stage.py:226       no latent      our `a2vid_two_stage` stage 1
 //   ti2vid_two_stages.py:244     no latent      our `ti2vid_two_stage` stage 1
-//   keyframe_interpolation.py:200 no latent     unported (#1096)
+//   keyframe_interpolation.py:200 no latent     our `keyframe_interpolation` stage 1
 //   ti2vid_two_stages_hq.py:267  latent=empty_latent   our `res2s_two_stage`
 //
 // So the LATENT-DERIVED anchor is upstream's exception, not its rule — which is
@@ -735,6 +735,125 @@ struct Ltx2PhaseRecipe {
 
   // ltx2_recipes.py:48-50: `None` when the schedule is not explicit. -1 here.
   int64_t num_inference_steps() const;
+};
+
+// WHICH OF UPSTREAM'S TWO IMAGE-CONDITIONING BUILDERS this recipe runs over its
+// `images` list. Row LTX25-KEYFRAME-INTERP, issue #1096.
+//
+// The two functions live side by side in
+// `ltx-pipelines/utils/helpers.py` and differ by exactly one branch:
+//
+//                       combined_image_conditionings   ..._by_adding_guiding_latent
+//                       (:272-308)                     (:343-367)
+//   frame_idx == 0      VideoConditionByLatentIndex    VideoConditionByKeyframeIndex
+//   any other frame_idx VideoConditionByKeyframeIndex  VideoConditionByKeyframeIndex
+//
+// The second has no branch at all — one loop, one item type. And the two items
+// do different things to the state: `VideoConditionByLatentIndex` REPLACES the
+// clean tokens of latent frame 0 and the token count never changes
+// (latent_cond.py:38-39), while `VideoConditionByKeyframeIndex` APPENDS a latent
+// frame of tokens at the end (keyframe_cond.py:79-82).
+//
+// A RECIPE FIELD RATHER THAN A PHASE ONE, because upstream picks the builder per
+// PIPELINE: `keyframe_interpolation.py` calls the same one for both of its
+// stages (`:211` and `:260`, differing only in the height and width they pass).
+// A per-phase field would offer a combination upstream has no call site for.
+//
+// AND NOT A `pipeline_kind` STRING COMPARE at the reader, for the reason
+// `audio_only` and `requires_audio_input` give below: the recipe table is the
+// one place that knows, and a string test at the call site is one more chance
+// for the next recipe on this builder to be missed.
+//
+// WHY THIS IS INVISIBLE WITHOUT A DELIBERATE GATE. A `keyframe_interpolation`
+// render built on the replace arm returns a clip of the right size, the right
+// frame count and the right sample rate, with the supplied image pinned into it.
+// It IS conditioned — it is conditioned as a different pipeline. The only
+// observable is the sequence LENGTH the DiT ran over, which is
+// `Ltx2ConditioningTrace::video_tokens`; no pixel comparison and no shape check
+// reads it.
+enum class Ltx2ImageConditioningBuilder {
+  // `combined_image_conditionings` (helpers.py:272-308). Frame 0 REPLACES. Every
+  // other pipeline in `ltx-pipelines`, so this is upstream's majority as well as
+  // this engine's incumbent behaviour — the default moves nothing.
+  kCombined,
+  // `image_conditionings_by_adding_guiding_latent` (helpers.py:343-367). Frame 0
+  // APPENDS, like every other frame. `keyframe_interpolation.py:211`, `:260`.
+  kAddGuidingLatent,
+};
+
+// WHICH CLASS OF TRANSFORMER a load carries. Row LTX25-CHECKPOINT-CLASS,
+// issue #1137.
+//
+// This is a CLAIM BY THE CALLER, not a detection, and the distinction is the
+// whole row. Four real LTX-2.5 safetensors headers were read on 2026-08-20 and
+// none of them carries a field that separates a distilled transformer from a
+// full one:
+//
+//   - `__metadata__["config"]` is 2199 bytes and BYTE-IDENTICAL between
+//     `ltx-2.5-22b-dev-transformer-bf16.safetensors` (full) and
+//     `ltx-2.5-22b-distilled-transformer-nvfp4.safetensors` (distilled), and
+//     `model_version` is `2.5.0` on both.
+//   - The one structural difference between those two,
+//     `keyframes_abs_pos_embedding`, is NOT a class marker. The distilled file's
+//     own config still declares `"use_keyframes_abs_pos_embedding": true` while
+//     the tensor is absent, and a THIRD file named distilled —
+//     `vonkaiser/LTX-2.5-FP8-NVFP4`'s `ltx-2.5-22b-distilled-fp8.safetensors` —
+//     carries it as `F8_E4M3 [1, 4096]` over a base tensor-name set that is
+//     exactly the dev file's 4349 names.
+//   - The two bf16 transformers are the SAME SIZE, 42,018,190,584 bytes each,
+//     so `ls -l` does not separate them either.
+//
+// The measurement, its limits and the one file that would settle it are in
+// `.agents/specs/ltx25-checkpoint-class.md` section 2. A detector built on any
+// of those fields would be a guess, and a wrong detector is worse than none:
+// it would refuse a correct load, or admit the wrong one with a green check
+// beside it.
+enum class Ltx2CheckpointClass {
+  // "Full" in upstream's table. The undistilled base transformer.
+  kFull,
+  // "Distilled only". The transformer distilled onto the 8-sigma schedule.
+  kDistilled,
+  // `DFRPipeline`'s "Keyframe-slot SFT" base (dfr_pipeline.py:157, "on a
+  // keyframe-slot-capable SFT base plus a distilled LoRA"). Neither of the
+  // other two: it is a separate fine-tune.
+  kKeyframeSlotSft,
+};
+
+// WHICH CLASS A RECIPE NEEDS — one enumerator per distinct checkpoint half of
+// the `Model` column in `packages/ltx-pipelines/CLAUDE.md:17-30 @ fd4ded7f`.
+//
+// The LoRA half of that column is a DIFFERENT field. `Full + distilled LoRA` is
+// a class (`Full`) and an adapter (`distilled LoRA`), and the adapter half is
+// `requires_distilled_lora` below. Conflating the two would let a full-model arm
+// pass its class check by carrying an adapter.
+enum class Ltx2RequiredCheckpointClass {
+  // "Full": `TI2VidOneStagePipeline`, `T2AOneStagePipeline`,
+  // `TI2VidTwoStagesPipeline`, `TI2VidTwoStagesHQPipeline`,
+  // `A2VidPipelineTwoStage`, `KeyframeInterpolationPipeline`.
+  // `t2a_one_stage.py:50` says it again in prose: "Assumes full non distilled
+  // model is provided in the checkpoint_path."
+  kFull,
+  // "Distilled only": `DistilledPipeline`, and upstream's `ICLoraPipeline` and
+  // `DubItPipeline`, which this tree does not ship.
+  kDistilled,
+  // "Keyframe-slot SFT": `DFRPipeline`.
+  kKeyframeSlotSft,
+  // "Full or distilled": `RetakePipeline`, and it is a CONDITION rather than a
+  // hole. `retake.py:71-73` states it: "Set to ``True`` if using distilled model
+  // or passing distillation lora with full model." This tree's `RetakeRecipe`
+  // mirrors upstream's CLI, which hard-codes `distilled=True` (`retake.py:336`,
+  // `:359`) and then takes `DISTILLED_SIGMAS` (`:287`), so a `full` checkpoint
+  // with no adapter would run the distilled schedule on undistilled weights —
+  // #1137 again, one enumerator down. `Ltx2CheckpointClassRefusal` therefore
+  // requires an adapter on the `full` arm and accepts `distilled` outright.
+  kFullOrDistilled,
+  // NO REFERENCE STATES A CLASS. `dmd2` alone: it comes from vLLM-Omni's
+  // `_PIPELINE_RECIPES` (`ltx2_recipes.py:160-167 @ a4ea67a2`), whose table has
+  // no `Model` column, and it has no row in Lightricks' table at all. Recorded
+  // as unstated rather than defaulted to a permissive value, because a silent
+  // `kFullOrDistilled` would read as a decision somebody made. Owed in
+  // `.agents/specs/ltx25-checkpoint-class.md`.
+  kUnstated,
 };
 
 // LTXPipelineRecipe (ltx2_recipes.py:53-87).
@@ -804,8 +923,65 @@ struct Ltx2PipelineRecipe {
   // runs it. The two were conflated while only one placement existed.
   bool requires_distilled_lora = false;
 
+  // WHICH CLASS OF TRANSFORMER this pipeline can run — the checkpoint half of
+  // upstream's `Model` column. Row LTX25-CHECKPOINT-CLASS, issue #1137.
+  //
+  // A FLAG ON THE RECIPE, not a `pipeline_kind` string compare at the refusal,
+  // for the reason `audio_only` and `requires_distilled_lora` give above: the
+  // table is the one place that knows, and the next recipe inherits the rule
+  // instead of being missed.
+  //
+  // THE DEFAULT IS THE MOST DEMANDING VALUE any row takes, so a recipe added
+  // later that forgets this field refuses rather than admits. The default is not
+  // the gate: `test_ltx2_pipeline` walks every `(kind, version)` pair this table
+  // resolves and pins each requirement against the upstream row.
+  //
+  // WITHOUT THIS FIELD the render still finishes. A distilled transformer on a
+  // `Full` arm returns a clip of the right size, the right frame count and the
+  // right sample rate, sampled in a regime the weights were never trained for —
+  // and no pixel, RMS, windowed-energy or spectral check can see it, because the
+  // model ran.
+  Ltx2RequiredCheckpointClass checkpoint_class = Ltx2RequiredCheckpointClass::kFull;
+
+  // See `Ltx2ImageConditioningBuilder`. Read in exactly one place — the phase
+  // loop's first-frame arm, which is the only site where the two builders
+  // disagree. The last-frame arm below it is unchanged, because `frame_idx != 0`
+  // takes the keyframe item under BOTH of them.
+  Ltx2ImageConditioningBuilder image_conditioning = Ltx2ImageConditioningBuilder::kCombined;
+
   int64_t max_spatial_downscale() const;
 };
+
+// The spelling of a class in the `checkpoint_class` load extra and in a refusal.
+const char* Ltx2CheckpointClassName(Ltx2CheckpointClass value);
+
+// The three accepted spellings, comma-separated, for a message that has to list
+// them. Derived from the enum so a fourth class cannot be added without every
+// message following it.
+std::string Ltx2CheckpointClassSpellings();
+
+// `true`, and writes `*out`, when `text` is one of the spellings above. `false`
+// otherwise, and `*out` is untouched.
+bool Ltx2ParseCheckpointClass(const std::string& text, Ltx2CheckpointClass* out);
+
+// What a recipe needs, in the words of upstream's `Model` column, for a refusal
+// to quote.
+std::string Ltx2RequiredCheckpointClassName(Ltx2RequiredCheckpointClass value);
+
+// THE DECISION, kept beside the recipe table it reads rather than in the engine,
+// so the table and the rule that consumes it cannot drift into two files.
+//
+// Returns the EMPTY STRING when the load is acceptable, and the refusal text
+// otherwise. `declared` is the raw `checkpoint_class` load extra, empty when the
+// caller supplied none. `has_lora` says whether the load carries an adapter,
+// which only `kFullOrDistilled` reads.
+//
+// Four refusals: an unparseable value, an absent declaration on a recipe that
+// needs a specific class, a declared class the recipe cannot run, and a `full`
+// declaration on `kFullOrDistilled` with no adapter.
+std::string Ltx2CheckpointClassRefusal(const Ltx2PipelineRecipe& recipe,
+                                       const std::string& pipeline_kind,
+                                       const std::string& declared, bool has_lora);
 
 // `assert_resolution` (ltx-pipelines utils/helpers.py:540-551). Upstream calls it
 // at the top of a pipeline's `__call__`, before any work is paid for — NINE

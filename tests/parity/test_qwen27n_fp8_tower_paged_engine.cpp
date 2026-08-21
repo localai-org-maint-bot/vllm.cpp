@@ -13,7 +13,7 @@
 // set and ships ZERO `*.input_scale` tensors: it has no FP8 W8A8 weight
 // anywhere. Every fp8-tower lever — the fp8 GDN input projection and its
 // merged-qkvz collapse, the fp8 out_proj, the fp8 attention qkv — is selected by
-// probing an on-disk tensor dtype (`qwen3_5_dense_weights.cpp:425-432,437-447,
+// probing an on-disk tensor dtype (`qwen3_5_dense_weights.cpp:426-433,438-448,
 // 472-485`: `dtype == "F8_E4M3"`), so on that checkpoint every one of those
 // branches is DEAD CODE and the gate cannot fail for an fp8 defect.
 //
@@ -92,7 +92,10 @@ namespace {
 // Qwen3.6-27B has 48 GDN (`linear_attention`) layers. One merged FP8 qkvz GEMM
 // per layer on the default arm; two split GEMMs per layer on the
 // VT_GDN_MERGED_QKVZ_FP8=0 rollback.
-constexpr uint64_t kGdnLayers = 48;
+// [[maybe_unused]]: the uses below live behind the CUDA-only fp8-tower arms;
+// on a HIP-only build they compile out and the constant would be an
+// -Wunused-const-variable error under clang/hipcc.
+[[maybe_unused]] constexpr uint64_t kGdnLayers = 48;
 
 // Snapshot dir of the FP8-tower 27B, or "" to refuse. Pinned to the revision
 // its goldens were captured against; a cache holding some other revision of the

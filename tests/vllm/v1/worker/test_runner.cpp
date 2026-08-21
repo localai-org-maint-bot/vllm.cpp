@@ -36,6 +36,7 @@
 #include "vllm/transformers_utils/hf_config.h"
 #include "vllm/v1/core/sched/output.h"
 #include "vllm/v1/kv_cache_dtype.h"
+#include "vllm/v1/attention/registry.h"
 #include "vllm/v1/kv_cache_interface.h"
 #include "vt/backend.h"
 #include "vt/dtype.h"
@@ -188,7 +189,7 @@ Qwen3_5MoeWeights MakeWeights(const HfConfig& c) {
   return w;
 }
 
-constexpr int kBlockSize = 8;
+constexpr int kBlockSize = 16;
 constexpr int kMaxModelLen = 32;
 constexpr int kNumBlocks = 8;
 
@@ -450,6 +451,16 @@ TEST_CASE("runner: KV allocation from KVCacheConfig (full-attn + GDN state)") {
   CHECK(runner.num_blocks() == kNumBlocks);
   CHECK_FALSE(runner.kv_cache_backend_resident());
 
+  // M3: the runner resolves the ENGINE-level attention backend at init, per
+  // attention group. On CPU the dense priority walk (cpu.cpp) is
+  // [CPU_ATTN, FLASH_ATTN] and, since #1371 registered it, lands on CPU_ATTN —
+  // upstream's own CPU answer (cpu.py:75-87). This is the proof that selection
+  // is part of the runtime path, not just the registry test: the name below is
+  // resolved inside GPUModelRunner::initialize_kv_cache. One name per attention
+  // layer.
+  REQUIRE(runner.attn_backend_names().size() == 1);
+  CHECK(runner.attn_backend_names()[0] == "CPU_ATTN");
+
   // One PagedKvCache per full-attn layer (config has exactly 1).
   REQUIRE(runner.attn_kv().size() == 1);
   const PagedKvCache& kv = runner.attn_kv()[0];
@@ -585,7 +596,8 @@ TEST_CASE("runner: MambaSpec is the allocation source of truth") {
 // ─── #810: THE BYTE-NEUTRALITY ARM ───────────────────────────────────────────
 //
 // `initialize_kv_cache` serves EVERY architecture — the engine builds exactly
-// one `GPUModelRunner` (model_loader.cpp:1007-1023) — so a refactor of it owes
+// one `GPUModelRunner` (`src/vllm/entrypoints/model_loader.cpp::runner_`, built
+// in the `LoadedEngine` member-init list) — so a refactor of it owes
 // a proof that it changes nothing for the models that already work. This
 // mirrors the BYTE-NEUTRALITY CONTRACT stated for the `per_layer_attn_specs`
 // seam at include/vllm/v1/kv_cache_interface.h:354-374: byte-identical
@@ -597,7 +609,7 @@ TEST_CASE("runner: MambaSpec is the allocation source of truth") {
 // inputs of the code under test reproduces exactly the self-consistency defect
 // the case above exists to remove. Only the KV element SIZE follows
 // `ResolveKvCacheDType()`, because the VT_KV_CACHE_F32 A/B lane legitimately
-// changes it and the geometry — K+V, block 8, 2 kv heads, head_dim 8 — is the
+// changes it and the geometry — K+V, block 16, 2 kv heads, head_dim 8 — is the
 // part being pinned.
 //
 // It reports its own N ([[the-state-was-not-the-one-you-believed]]): every
@@ -633,11 +645,11 @@ TEST_CASE("runner: the Qwen3.5 allocation is BYTE-IDENTICAL after #810") {
   // 4. Every attention view, per layer.
   const int64_t kv_es =
       static_cast<int64_t>(vt::SizeOf(vllm::v1::ResolveKvCacheDType()));
-  const int64_t kFaPageBytes = 2 * 8 * 2 * 8 * kv_es;  // K+V, block, Hkv, Dh
+  const int64_t kFaPageBytes = 2 * 16 * 2 * 8 * kv_es;  // K+V, block, Hkv, Dh
   CHECK(runner.fa_page_size_bytes() == kFaPageBytes);
   for (const PagedKvCache& kv : runner.attn_kv()) {
     CHECK(kv.num_blocks == 8);
-    CHECK(kv.block_size == 8);
+    CHECK(kv.block_size == 16);
     CHECK(kv.num_kv_heads == 2);
     CHECK(kv.head_size == 8);
     CHECK(kv.dtype == vllm::v1::ResolveKvCacheDType());
@@ -1516,4 +1528,33 @@ TEST_CASE("runner: full-attention-only step skips GDN metadata build (no OOB)") 
   CHECK_THROWS_WITH_AS(runner.execute_model(s1),
                        doctest::Contains("qwen3_5 dense paged forward"),
                        std::runtime_error);
+}
+
+// ─── M3: THE BLOCK-SIZE CONTRACT AT ITS PRODUCTION CALL SITE ─────────────────
+//
+// `CheckKvCacheShape` is well tested in isolation (test_attn_backend_registry /
+// test_common_attn_metadata), but its PRODUCTION call site — the install inside
+// `GPUModelRunner::initialize_kv_cache` — was not: no test drove the runner
+// with a non-multiple-of-16 block size, so deleting that install left every
+// gate green (the #1065 Owed item). The FLASH_ATTN backend's own
+// `get_kv_cache_shape` refuses block_size % 16 != 0, and the runner resolves
+// FLASH_ATTN for the CPU device, so construction must throw the backend's
+// `invalid_argument` from init — the same failure the server's --block-size
+// validation and the bench rounding exist to prevent at the entry points.
+TEST_CASE("runner: initialize_kv_cache refuses a non-multiple-of-16 block size") {
+  const HfConfig c = MakeDenseOnlyConfig();
+  const Qwen3_5DenseWeights w = MakeDenseOnlyWeights(c);
+
+  KVCacheConfig kv = MakeFaOnlyKvConfig(c);
+  kv.kv_cache_groups[0].kv_cache_spec = std::make_shared<FullAttentionSpec>(
+      /*block_size=*/8, static_cast<int>(c.num_key_value_heads),
+      static_cast<int>(c.head_dim), vllm::v1::ResolveKvCacheDType());
+
+  auto make_runner = [&]() {
+    GPUModelRunner runner(c, w, kv, Q(), /*max_num_reqs=*/8, kMaxModelLen,
+                          /*max_num_batched_tokens=*/64);
+  };
+  CHECK_THROWS_WITH_AS(make_runner(),
+                       doctest::Contains("Block size must be a multiple of 16"),
+                       std::invalid_argument);
 }
