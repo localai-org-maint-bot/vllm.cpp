@@ -98,7 +98,9 @@ value is refused at startup rather than silently ignored.
 
 For an installed library, use the stable public interface in
 [`include/vllm.h`](../include/vllm.h). Link `libvllm` and include `vllm.h`.
-This example shows the blocking completion shape:
+The current header declares `VLLM_ABI_VERSION 23`; call `vllm_abi_version()`
+at runtime to detect a header and library mismatch. This example shows the
+blocking completion shape:
 
 ```c
 #include "vllm.h"
