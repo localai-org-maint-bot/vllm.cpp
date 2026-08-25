@@ -37,6 +37,12 @@
 
 ## News
 
+- **2026-08** **FP8 KV cache storage reaches the server.** `--kv-cache-dtype fp8` stores K/V in
+  1-byte E4M3 pages. A fixed memory budget holds twice as many blocks, but the throughput trade-off
+  is not measured yet.
+- **2026-08** **The server returns prompt log probabilities.** Both completion endpoints accept
+  `prompt_logprobs`, including `-1` for the full vocabulary, and reject unsupported request shapes
+  with `400`.
 - **2026-08** **MiniMax-Music3 generates music through the public API.** Every pipeline stage is
   implemented and gated. The server exposes it through `POST /v1/audio/speech`; no reference speed
   number is available yet.
@@ -200,6 +206,9 @@ you get on top, most of it borrowed from whichever engine does it best:
 - **Speculative decoding beyond ngram.** MTP, block-diffusion DFlash, and draft-free ngram, through
   the same `--speculative-config` JSON vLLM takes
   ([docs/SPECULATIVE-DECODING.md](docs/SPECULATIVE-DECODING.md)).
+- **Smaller KV pages when capacity matters.** `--kv-cache-dtype fp8` stores K/V in 1-byte E4M3
+  pages on the routed model families. The memory win and current kernel trade-offs are documented
+  in [the usage guide](docs/USAGE.md#halve-the-kv-cache-with---kv-cache-dtype-fp8).
 - **Additive by design.** New architectures and new GPU targets land as additive files mirroring
   vLLM's own structure, so upstream changes port mechanically and a contribution stays a small diff.
 - **Honest numbers.** Every capability is labelled correctness-complete, speed-pending, build-only,
