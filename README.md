@@ -8,7 +8,7 @@
 
 <p align="center">
   <b>Same tokens as vLLM. Same throughput. 140x less to install.</b><br>
-  <sub>Continuous batching, paged KV, 40 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
+  <sub>Continuous batching, paged KV, 41 registered architectures, CUDA / CPU / Metal / Vulkan. No Python anywhere.</sub>
 </p>
 
 <p align="center">
@@ -40,6 +40,12 @@
 - **2026-08** **Hybrid CPU/GPU expert placement reaches four architecture families.** Qwen3-MoE,
   Qwen3.5/3.6, Nemotron-H, and DeepSeek-V2 can run routed experts on the CPU while the rest of the
   model stays on the selected accelerator. The end-to-end token and speed gates are still pending.
+- **2026-08** **FP8 KV cache storage reaches the server.** `--kv-cache-dtype fp8` stores K/V in
+  1-byte E4M3 pages. A fixed memory budget holds twice as many blocks, but the throughput trade-off
+  is not measured yet.
+- **2026-08** **The server returns prompt log probabilities.** Both completion endpoints accept
+  `prompt_logprobs`, including `-1` for the full vocabulary, and reject unsupported request shapes
+  with `400`.
 - **2026-08** **MiniMax-Music3 generates music through the public API.** Every pipeline stage is
   implemented and gated. The server exposes it through `POST /v1/audio/speech`; no reference speed
   number is available yet.
@@ -91,7 +97,7 @@ Where that stands today:
   ahead at all six concurrencies but only c1 outside our noise band. Also **1.18x llama.cpp's
   prefill** on the same GGUF file (denominator SUPERSEDED, see below), and **ahead of MLX-LM on
   prefill** on Apple Silicon. Most other architectures are speed-pending, and say so.
-- **Everything.** 40 registered architectures, 38 tool-parser families, structured output including
+- **Everything.** 41 registered architectures, 38 tool-parser families, structured output including
   GBNF, three speculative decoders, image, video, and audio input, music generation, external KV
   offload, Prometheus metrics, and the SGLang knobs, all in a library you can `dlopen`.
 
@@ -203,6 +209,9 @@ you get on top, most of it borrowed from whichever engine does it best:
 - **Speculative decoding beyond ngram.** MTP, block-diffusion DFlash, and draft-free ngram, through
   the same `--speculative-config` JSON vLLM takes
   ([docs/SPECULATIVE-DECODING.md](docs/SPECULATIVE-DECODING.md)).
+- **Smaller KV pages when capacity matters.** `--kv-cache-dtype fp8` stores K/V in 1-byte E4M3
+  pages on the routed model families. The memory win and current kernel trade-offs are documented
+  in [the usage guide](docs/USAGE.md#halve-the-kv-cache-with---kv-cache-dtype-fp8).
 - **Additive by design.** New architectures and new GPU targets land as additive files mirroring
   vLLM's own structure, so upstream changes port mechanically and a contribution stays a small diff.
 - **Honest numbers.** Every capability is labelled correctness-complete, speed-pending, build-only,
@@ -252,7 +261,7 @@ InternLM2/3, MiniCPM and MiniCPM3, Yi, OPT, plus Qwen3-VL and Qwen3.6-27B vision
 and Voxtral (audio).
 
 <details>
-<summary><b>The full architecture matrix</b> (40 registered architectures grouped by family)</summary>
+<summary><b>The full architecture matrix</b> (41 registered architectures grouped by family)</summary>
 
 | Architecture | Example checkpoint | GGUF | Correctness | Speed |
 |---|---|:---:|---|---|
@@ -299,7 +308,7 @@ sampler, no logits); upstream is `vllm-project/vllm-omni`. Five conditioning mod
 Compressed-tensors NVFP4A16 (W4A16) dense weights also load and compute natively
 (RedHatAI/Qwen3-32B-NVFP4A16). Long-context RoPE (YaRN, Llama-3, LongRoPE, dynamic-NTK) and
 sliding-window attention are gated feature-positive. The authoritative per-architecture list, bound
-to the C++ registry (all 40 registered architectures with their tested checkpoint and gate, plus the
+to the C++ registry (all 41 registered architectures with their tested checkpoint and gate, plus the
 standalone audio/diffusion lanes and the inventoried-but-blocked archs), is in
 [docs/FEATURES.md](docs/FEATURES.md); family-by-family lifecycle detail, including what is
 hardware-blocked and why, is linked from [Project status](#project-status).
