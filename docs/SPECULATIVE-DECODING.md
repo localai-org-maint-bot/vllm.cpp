@@ -459,7 +459,8 @@ engine is already about 4% faster than vLLM with speculation off, so the lead is
 preserved with it on. The extra state speculation needs (a doubled recurrent-state
 slot at k=1, plus the draft cache and head) costs about 3.6 GB, well inside the
 box's unified memory. The [speculative-decoding benchmark page](benchmarks/speculative-decoding.md)
-contains the full A/B, including the higher-concurrency numbers.
+carries every speculator's current published position. The higher-concurrency legs of this
+particular A/B are not among them and stay owed.
 
 ## Concurrency above 1
 
