@@ -57,9 +57,29 @@ measurement. The user authorizes a fork PR, not merging upstream.
 
 ## Now
 
-Scope recorded before implementation. Benchmark disposition: NOT APPLICABLE
-for editorial changes. Existing measurements remain owned by their detail pages.
+Public prose is implemented in 26af60d72. Independent review and fork PR
+handoff are next. Benchmark disposition: NOT APPLICABLE for editorial changes.
+Existing measurements remain owned by their detail pages.
 
 ## Owed
 
 - [ISSUE-LOCAL-01M2HG9YWNDFMQX45PXMEEJKAV](../issues/_owed/ISSUE-LOCAL-01M2HG9YWNDFMQX45PXMEEJKAV.md): publish the source-checked overview.
+
+## Verification evidence
+
+The coordinator checked dispatch at tenstorrent_ops.cpp:2845, backend selection
+at CMakeLists.txt:117 and :321, and benchmark arguments at examples/bench/main.cpp:96.
+The three edited documents preserve the published smoke workload and its limits.
+
+CPU checks passed: check-readme-structure.py, check-benchmark-index.py,
+check-agent-record.py, check-supported-models.py, check-env-doc.py,
+check-quickstart-recipes.py, and check-release-workflow.py. Existing mutation
+suites passed: README structure 19, benchmark index 6, supported models 11,
+and agent record 104 tests. Commit style and trailers passed.
+
+Full preflight was attempted before editing. Build and release checks cannot
+all run in this container: CMake and a compiler are absent, and isolated release
+subprocesses do not inherit the user-local Python library path. The initial
+missing PyYAML dependency was supplied locally and check-release-workflow.py
+then passed. These limits do not validate or invalidate accelerator behavior.
+No GPU, inference, or benchmark execution was attempted.
