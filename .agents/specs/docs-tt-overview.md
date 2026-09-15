@@ -62,3 +62,4 @@ for editorial changes. Existing measurements remain owned by their detail pages.
 
 ## Owed
 
+- [ISSUE-LOCAL-01M2HG9YWNDFMQX45PXMEEJKAV](../issues/_owed/ISSUE-LOCAL-01M2HG9YWNDFMQX45PXMEEJKAV.md): publish the source-checked overview.
