@@ -449,7 +449,7 @@ behind a model gallery, multi-model serving, the full OpenAI API surface, auth, 
 ## Use it as a library (C API)
 
 Link `libvllm` and include [`include/vllm.h`](include/vllm.h): a flat, exception-free,
-llama.cpp-style C ABI (currently `VLLM_ABI_VERSION 26`) suitable for `dlopen` / FFI. Check the
+llama.cpp-style C ABI (currently `VLLM_ABI_VERSION 30`) suitable for `dlopen` / FFI. Check the
 header for the version that your build provides.
 
 ```c
