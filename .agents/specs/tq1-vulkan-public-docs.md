@@ -74,3 +74,41 @@ Missing loader support makes a generic ternary-model announcement false.
 Shader catalog checks are not GPU numerical tests. Stop if the source cannot
 justify a sentence. Do not repair code, unrelated records, checkers, or baseline
 failures. Keep broader implementation gaps open under their existing owner.
+
+## Outcome
+
+29 September 2026: the four public documents distinguish ternary kernel code
+from model loading. The existing Vulkan build recipe needs no new option.
+The BUILD note links its kernel coverage and states the loader limitation.
+No code, model lifecycle, benchmark number, or default changes.
+
+Source checks at base `d15b1cc09`:
+
+- `src/vt/vulkan/vulkan_ops.cpp:2178`, `:2287`, and `:2451` dispatch the
+  matrix, grouped expert, and fused gate/up/SwiGLU kernels.
+- `src/vt/vulkan/shaders/vt_matmul_bt_tq1_0.comp:74` reads compressed blocks.
+  `src/vt/cpu/cpu_quant_dot.cpp:1145` supplies the CPU dot implementations.
+- `src/vllm/model_executor/model_loader/gguf_reader.cpp:200` omits ternary
+  type traits. `:522` rejects unknown tensor types.
+- `tests/vt/test_vulkan_backend.cpp:318` checks TQ1_0 shader metadata.
+  `:4253` checks CPU decoding, without executing a GPU kernel.
+- `CMakeLists.txt:1731` includes the Vulkan operations and committed SPIR-V
+  under the existing `VLLM_CPP_VULKAN` option.
+
+The four focused checkers pass. The existing README mutation suite passes
+19 tests. `git diff --check` passes. Commands are listed under Tests and gates.
+The implementation log is `/tmp/vllm-doc-tools/impl-focused.log`.
+No new test or negative mutation is needed for these editorial changes.
+
+The initial claim table failed record validation because the implementation row
+is `INVENTORIED`. The operator selected narrative editorial ownership instead,
+with draft PR 3349 as the live claim. No checker or matrix changed.
+The corrected record gate passes.
+
+Full preflight was attempted with Bash. Its log at
+`/tmp/vllm-doc-tools/impl-preflight.log` includes the provisional claim failure
+and cannot establish final-head verification. The operator compares broad
+failures against the unchanged base and owns final verification.
+The initial `sh` invocation exited 2 because preflight requires Bash.
+No GPU or oracle execution was attempted. No numerical correctness, model
+loading, or performance claim follows from this documentation review.

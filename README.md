@@ -37,6 +37,9 @@
 
 ## News
 
+- **2026-09** **Vulkan gains TQ1_0 ternary kernels.** Matrix multiplication and fused MoE
+  kernels operate on compressed weights. TQ1_0 and TQ2_0 GGUF loading remain unsupported.
+  See [kernel coverage and limits](docs/FEATURES.md#ternary-kernels).
 - **2026-09** **Multimodal chat reaches the model through HTTP.** Qwen3-VL accepts images;
   dots3-note also accepts audio and multiple media items. CPU tests use synthetic weights;
   real-checkpoint token parity remains unverified. See the [input guide](docs/guides/multimodal-input.md)
