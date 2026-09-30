@@ -37,6 +37,9 @@
 
 ## News
 
+- **2026-09** **Qwen3.8 gains an endpoint measurement tool.** The TensorFold comparison remains
+  blocked by missing artifacts, with no speed result. See the
+  [measurement instructions and limits](docs/benchmarks/qwen38-tensorfold-gap.md#measurement-tools).
 - **2026-09** **Multimodal chat reaches the model through HTTP.** Qwen3-VL accepts images;
   dots3-note also accepts audio and multiple media items. CPU tests use synthetic weights;
   real-checkpoint token parity remains unverified. See the [input guide](docs/guides/multimodal-input.md)

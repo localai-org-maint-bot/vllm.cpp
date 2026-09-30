@@ -16,4 +16,8 @@ The public TensorFold benchmark detail records the blocked result but does not l
 
 ## Resolution
 
--
+30 September 2026: Implemented README news and public benchmark links to the
+existing harness guide and environment templates. The three focused CPU suites
+passed all 58 tests. README structure, retained evidence, relative links, and
+whitespace checks passed. Independent review and upstream landing remain
+pending, so this issue stays open.

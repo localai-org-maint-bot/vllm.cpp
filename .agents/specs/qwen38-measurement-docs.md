@@ -10,7 +10,7 @@ Documentation follow-up for `BENCH-QWEN38-TENSORFOLD-GAP`, tracked by
 |---|---|---|---|
 | README news | `tools/bench/qwen38_endpoint_bench.py:466` | Announce the endpoint measurement tool with the blocked comparison caveat | Read parser and public result |
 | Public benchmark detail | `benchmarks/manifests/qwen38_tensorfold/README.md:1` | Link the harness instructions and environment templates; explain comparison limits | Resolve links and inspect verdict logic |
-| Capture prerequisites | `tools/bench/run_qwen38_tensorfold_gap.py` | Link existing runner instructions where available, without inventing a runnable GPU recipe | Inspect parser and templates |
+| Capture prerequisites | `tools/bench/run_qwen38_tensorfold_gap.sh` | Link existing runner instructions where available, without inventing a runnable GPU recipe | Inspect parser and templates |
 
 ## Design and sources
 
@@ -32,9 +32,9 @@ applicable because no executable code changes.
 No tests to port. Use existing CPU-only suites:
 
 ```sh
-python3 tests/scripts/test_qwen38_endpoint_bench.py
-python3 tests/scripts/test_run_qwen38_tensorfold_gap.py
-python3 tests/scripts/test_validate_qwen38_tensorfold_evidence.py
+python3 -m pytest -q tests/scripts/test_qwen38_endpoint_bench.py \
+  tests/scripts/test_run_qwen38_tensorfold_gap.py \
+  tests/scripts/test_validate_qwen38_tensorfold_evidence.py
 python3 scripts/check-readme-structure.py
 python3 tools/bench/validate_qwen38_tensorfold_evidence.py .agents/evidence/bench-qwen38-tensorfold-gap/latest
 ```
@@ -54,4 +54,21 @@ request; do not merge upstream.
 
 ## Now
 
-Documentation scoped. Implementation and independent source review pending.
+Documentation implemented and CPU checks passed. Independent source review and
+upstream landing remain pending. The benchmark remains `BLOCKED_MISSING_ARTIFACTS`.
+
+## Outcome
+
+README news links to the public result, which now links the existing harness
+guide and both environment templates. The text explains comparison limits,
+draft configuration, and refused measurements without adding benchmark values.
+
+On 30 September 2026, the three focused pytest suites passed all 58 tests.
+The README structure check, evidence validator, relative-link checks, and
+`git diff --check` passed. The evidence verdict remains
+`BLOCKED_MISSING_ARTIFACTS`. Repository preflight encountered existing record,
+index, environment-documentation, and release-state failures outside this scope.
+The operator compares its full result with the baseline before handoff.
+
+No executable behavior or test guarantee changed. Red-first code tests,
+mutation tests, GPU execution, and new performance measurements do not apply.
