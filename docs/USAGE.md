@@ -721,35 +721,10 @@ ceiling.
 
 ### Which token ids stop a generation
 
-Stop ids come from two files in the checkpoint, not one. `config.json`'s
-`eos_token_id` supplies the **primary** eos id, and the sibling
-`generation_config.json` supplies **secondary** stop ids that are usually a
-superset of it. Gemma-4-26B is the clearest case:
-
-```
-config.json             eos_token_id: [1, 106]
-generation_config.json  eos_token_id: [1, 106, 50]
-```
-
-Both are read, mirroring vLLM's default `--generation-config auto`. The
-secondary ids are merged into the request's `stop_token_ids`, so a chat model
-stops on its turn-level token rather than running to the length cap. A missing
-or malformed `generation_config.json` is a silent no-op.
-
-When neither `config.json` nor the `tokenizer.json` post-processor names an
-eos, the engine takes the tokenizer's own `eos_token` from the sibling
-`tokenizer_config.json` as the primary eos id, which is vLLM's primary source.
-When no `generation_config.json` exists, it also adds the text config's
-`eos_token_id` as a secondary id, as vLLM's `from_model_config` fallback does.
-Tev1 is such a checkpoint: it stops on `<|im_end|>` without a
-`stop_token_ids` field. A checkpoint that already names its eos keeps it; the
-engine does not yet move the primary id to the tokenizer's for every model, as
-vLLM does ([spec](../.agents/specs/tev1-eos-fallback.md)).
-
-`ignore_eos: true` suppresses **all** of them, primary and secondary alike, and
-generation then runs to the token budget. The ids still count toward
-`min_tokens` masking either way, so `min_tokens` cannot be satisfied by emitting
-a stop token early.
+The engine resolves a primary end-of-sequence (EOS) ID and merges secondary
+EOS IDs into `stop_token_ids`. `ignore_eos: true` suppresses both primary and
+secondary EOS IDs. See the [server reference's EOS rules](reference/server.md#which-token-ids-stop-a-generation)
+for config precedence, tokenizer fallback, and `min_tokens` masking.
 
 ### Server flags
 
