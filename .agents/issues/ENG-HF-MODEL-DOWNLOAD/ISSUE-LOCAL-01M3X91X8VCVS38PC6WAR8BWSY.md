@@ -16,4 +16,4 @@ docs/QUICKSTART.md says repository downloads are unavailable because of relative
 
 ## Resolution
 
--
+2026-10-02: corrected in 6441747d7; focused CPU documentation checks and independent review pass. Awaiting upstream PR integration. See .agents/specs/docs-quickstart-hub-refresh.md.

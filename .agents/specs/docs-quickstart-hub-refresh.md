@@ -54,4 +54,26 @@ do not alter unrelated records or weaken gates to make this documentation pass.
 
 ## Now
 
-Scope recorded before editing. One PR carries the spec and correction.
+Correction committed as `6441747d7`. Independent review passed on that exact
+head. The fork PR is the integration path; upstream merge is not authorized.
+The local issue stays open until the correction lands upstream.
+
+## Outcome
+
+On 2 October 2026, the operator reran the focused checks after integration:
+32 recipe tests passed, the recipe and README checkers passed, and all 11 local
+quickstart links resolved. Agent records, commit style, commit trailers, and
+`git diff --check` passed. `check-tree-compiles.py --base 9d96b162c` found no
+changed source, header, or build file.
+
+The fresh reviewer checked `6441747d7` against the source and unchanged
+executed-run evidence. In a scratch copy, an invalid image tag failed the recipe
+checker and a missing local link failed link validation. Both mutations returned
+exit 1. The reviewer restored the scratch bytes and reported no findings.
+
+The initial full preflight did not pass. Its stale `origin/main` caused
+issue-reference failures; refreshing that remote-tracking ref made
+`check-agent-record.py` pass. Other observed failures include missing PyYAML,
+CMake/compiler prerequisites, and existing oracle-denominator and gate-command
+checks. Focused documentation verification does not assert a green full preflight.
+No new inference, container execution, model download, or benchmark ran.
