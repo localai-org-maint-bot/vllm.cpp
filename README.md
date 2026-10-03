@@ -52,7 +52,7 @@
   prefills. See [supported artifacts and limits](docs/USAGE.md#checkpoint-registry) and
   [benchmark conditions](docs/benchmarks/qwen38-27b-exl3-gb10.md).
 - **2026-08** **Qwen3.8-27B block-wise FP8 passes its GB10 text gate.** Six of seven
-  prompts matched vLLM token for token; one passed the ratified near-tie test. This is a
+  prompts matched vLLM token for token. One passed the ratified near-tie test. This is a
   correctness result with no speed claim. See [the model guide](docs/models/qwen3-8-27b.md#the-token-gate-against-vllm).
 - **2026-08** **EXL3 checkpoints now generate on CPU and CUDA.** A stock
   Llama-3.2-1B-Instruct EXL3 checkpoint loads through the shared dense model path and emits text.

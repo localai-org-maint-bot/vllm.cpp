@@ -10,11 +10,11 @@ correctness results. Loading a checkpoint does not establish token parity.
 | Checkpoint or format | What the evidence establishes |
 |---|---|
 | BF16 | Recorded correctness gate in [the model's quantization spec](../../.agents/specs/qwen38-27b-quant-arms.md) |
-| `Qwen/Qwen3.8-27B-FP8`, block-wise FP8 | CPU reference and CUDA on `sm_120a` and `sm_121a`; [GB10 text gate passed with one near-tie](#the-token-gate-against-vllm) |
-| `unsloth/Qwen3.8-27B-NVFP4`, mixed FP8 and NVFP4 | NVFP4 modules load; the FP8 group and quantized KV-cache configuration are refused |
-| `r0b0tlab/Qwen3.8-27B-NVFP4-MTP-sm121` | Per-tensor static FP8 and NVFP4 W4A16 load; [the artifact's token gate remains owed](../../.agents/specs/qwen38-27b-quant-arms.md#now) |
-| `RadixArk/Qwen3.8-27B-NVFP4` | Loads as W4A16 with a warning that the artifact declares W4A4; [the token gate remains owed](../../.agents/specs/qwen38-27b-quant-arms.md#now) |
-| `unsloth/Qwen3.8-27B-GGUF`, Q4_K_M | Generates on CPU; [the recorded token gate failed on 5 of 6 prompts](../bench-evidence/qwen38-27b-q4km-token-gate-20260823.md) |
+| `Qwen/Qwen3.8-27B-FP8`, block-wise FP8 | CPU reference and CUDA on `sm_120a` and `sm_121a`. [GB10 text gate passed with one near-tie](#the-token-gate-against-vllm) |
+| `unsloth/Qwen3.8-27B-NVFP4`, mixed FP8 and NVFP4 | NVFP4 modules load. The FP8 group and quantized KV-cache configuration are refused |
+| `r0b0tlab/Qwen3.8-27B-NVFP4-MTP-sm121` | Per-tensor static FP8 and NVFP4 W4A16 load. [The artifact's token gate remains owed](../../.agents/specs/qwen38-27b-quant-arms.md#now) |
+| `RadixArk/Qwen3.8-27B-NVFP4` | Loads as W4A16 with a warning that the artifact declares W4A4. [The token gate remains owed](../../.agents/specs/qwen38-27b-quant-arms.md#now) |
+| `unsloth/Qwen3.8-27B-GGUF`, Q4_K_M | Generates on CPU. [The recorded token gate failed on 5 of 6 prompts](../bench-evidence/qwen38-27b-q4km-token-gate-20260823.md) |
 | EXL3 | CUDA generation and its measured limits are recorded in [the EXL3 benchmark](../benchmarks/qwen38-27b-exl3-gb10.md) |
 
 Generic FP8 or NVFP4 kernel coverage does not establish correctness for every
@@ -25,7 +25,7 @@ records artifact revisions, hashes, and remaining gates.
 
 `unsloth/Qwen3.8-27B-NVFP4` is a mixed-precision checkpoint despite its name.
 The inspected revision is `7d6f8d4d72f56b92b3cdbf22f156b90e1bab0108`.
-Its backbone is 22,568,192,096 bytes; the BF16 MTP drafter is 849,400,392 bytes.
+Its backbone is 22,568,192,096 bytes. The BF16 MTP drafter is 849,400,392 bytes.
 The [artifact inventory](../../.agents/specs/qwen38-27b-quant-arms.md#what-i-inspected-and-what-i-took-on-trust)
 records the tensor accounting and provenance.
 
@@ -62,7 +62,7 @@ requirements described below.
 
 The CPU path is a correctness reference with no speed claim. It quantizes
 activations per token in groups of 128, then applies the block scales during
-matrix multiplication. The accumulator is F32; each projection emits BF16.
+matrix multiplication. The accumulator is F32. Each projection emits BF16.
 
 The shared dense forward merges gate and up projections. It also merges Q, K,
 and V when the fused attention preamble is enabled, as it is by default.
@@ -113,7 +113,7 @@ with a message that names the dimension and required granularity.
 For example, N=576 leaves 64 rows beyond a complete 128-row scale block.
 DeepSeek-V3's `kv_a_proj_with_mqa` has that width and cannot use this CUDA path.
 The missing fallback is an open implementation gap. The CPU reference accepts
-these shapes; `Qwen/Qwen3.8-27B-FP8` does not need them.
+these shapes. `Qwen/Qwen3.8-27B-FP8` does not need them.
 
 The [CUDA component spec](../../.agents/specs/vt-matmul-fp8-block-cuda.md)
 records the tested shapes, dispatch constraints, and upstream sources.
