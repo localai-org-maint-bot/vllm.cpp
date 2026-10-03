@@ -65,7 +65,28 @@ One PR carries this committed spec followed by the documentation change.
 
 ## Now
 
-Scope recorded. Public documentation edits and independent review are pending.
+Documentation implemented in `0ba4305cc`, with prose repair `0ae333669`.
+Independent source and prose review passed at `0ae333669`.
+The local issue remains open until the correction lands upstream.
+
+## Outcome
+
+The guide now distinguishes artifact loading from historical correctness
+results. It retains checkpoint pins and links detailed evidence instead of
+repeating the gate chronology. The index names the implemented CUDA targets,
+and README News describes six exact prompts plus one accepted near-tie.
+No new performance result or model lifecycle claim is introduced.
+
+Scoped verification: README structure passes, its 19 mutation tests pass,
+and all 40 local Markdown links in the two model pages resolve. Commit style
+and trailer checks pass. No GPU, model, or oracle execution was needed.
+
+Full preflight is not green on the base: stale record anchors, undocumented
+Tenstorrent variables, gate-record drift, and unavailable build dependencies
+are outside this documentation task. The broader runs were stopped after
+these failures, so the complete suite remains unverified. The PR reports
+these limitations.
 
 ## Owed
 
+Upstream review and merge of the documentation correction.
