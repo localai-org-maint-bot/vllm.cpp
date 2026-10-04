@@ -81,8 +81,54 @@ projector arm, rather than all GGUF models. The opening table lists the
 examples covered by this guide, not every registered multimodal architecture.
 The operator approved these source-backed scope corrections on 4 October 2026.
 
+## Outcome
+
+The guide now documents dense safetensors tower skipping, current C API routing,
+and the Qwen3-VL projector's validation boundaries. The server reference links
+to these instructions. README news describes the dense loader change.
+Historical memory results remain in `docs/benchmarks/memory.md` without a new
+measurement or changed disposition.
+
+Source verification on 4 October 2026 used:
+
+- `src/vllm/model_executor/models/qwen3_5_dense_weights.cpp:1193` and
+  `qwen3_5_dense.cpp:133`: the production loader skips vision tensors and
+  configuration parsing when both image and video limits are zero.
+- `src/vllm/model_executor/models/interfaces.cpp:9`, `qwen3_vl.cpp:463`, and
+  `muse_glimmer_weights.cpp:824`: shared predicate and existing loader examples.
+- `src/vllm/model_executor/models/dots3_note.cpp:783` and `:804`: supported
+  towers still load without a modality-limit condition.
+- `src/vllm/entrypoints/model_loader.cpp:3143`, `:3154`, and `:3186`:
+  separate DeepSeek-V4 routing and Qwen3-VL projector validation before skipping.
+- `src/vllm/multimodal/processing/context.cpp:38`: effective limits and the
+  conditional error hint. `include/vllm/config/multimodal.h:79`: zero-limit precedence.
+- `src/capi/vllm_c.cpp:480` and `:1343`: shared chat handler installation and use.
+  Existing refusal coverage is `tests/capi/test_capi.cpp:1518`.
+
+Verification used the local Python runtime with
+`PATH=/tmp/vllm-doc-tools/root/usr/bin:$PATH` and
+`LD_LIBRARY_PATH=/tmp/vllm-doc-tools/root/usr/lib`:
+
+- `python3 scripts/check-readme-structure.py`: exit 0.
+- `python3 scripts/check-agent-record.py`: exit 0 after releasing the editorial claim.
+- `python3 tests/scripts/test_agent_record.py`: exit 0, 106 tests.
+- `git diff --check 33fb82b09`: exit 0.
+- Added local Markdown links: 6 targets and heading anchors resolve.
+- `bash scripts/agent-preflight.sh --quiet`: INCOMPLETE. Both the pre-edit and
+  post-edit invocations were terminated after unrelated baseline failures and
+  slow subprocess suites. Logs are `/tmp/vllm-docs-impl-preedit.log` and
+  `/tmp/vllm-docs-impl-preflight.log`. Observed failures include missing build
+  tools, release-tool dependencies, oracle-pin records, and the live-row audit.
+  The coordinator reproduced baseline failures in a separate clean worktree.
+  The post-edit run also saw a transient table-claim error for the parent row's
+  `READY` state. The released editorial handoff and focused record suite pass.
+
+No behavior or tests changed. Red-first implementation and production-call
+mutation tests are not applicable. The fresh reviewer owns structural mutation
+and semantic review. No GPU, checkpoint, oracle, or performance run occurred.
+
 ## Now
 
-The source audit identifies a documentation gap. The implementation and review
-must complete before the fork pull request is ready. Model lifecycle states and
-benchmark dispositions remain unchanged.
+Documentation implementation is ready for independent review. The coordinator
+owns review and the fork pull request. Model lifecycle states and benchmark
+dispositions remain unchanged.
