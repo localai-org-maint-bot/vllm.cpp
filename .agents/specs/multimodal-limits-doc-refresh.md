@@ -13,7 +13,7 @@ and one README news entry. No model lifecycle or benchmark disposition changes.
 |---|---|---|
 | Dense tower skip | `src/vllm/model_executor/models/qwen3_5_dense_weights.cpp:1193`, `src/vllm/model_executor/models/qwen3_5_dense.cpp:55` and `:133` | The guide and flag reference omit the dense loader. |
 | Shared zero-limit predicate | `src/vllm/model_executor/models/interfaces.cpp:9` | Explain that every modality served by a tower must be zero. |
-| Projector loading | `src/vllm/entrypoints/llm.cpp`, `SkipTowerForModalities` and `LoadQwen3VLVisionFromClipMmproj` call sites | Preserve the distinction between metadata validation and skipped tensor validation. |
+| Projector loading | `src/vllm/entrypoints/model_loader.cpp:3186` and `:3190` | Preserve the distinction between metadata validation and skipped tensor validation. |
 | Serving limits | `src/vllm/entrypoints/openai/chat_mm.cpp` and `chat_utils.cpp` | Preserve architecture ceilings and configured-limit refusal behavior. |
 | Dense loader test | `tests/vllm/models/test_qwen3_5_dense_vision.cpp`, `qwen3_5_dense_loader_leaves_the_tower_unread_at_zero_limits` | Source evidence only. No new execution claim. |
 
@@ -28,7 +28,7 @@ makes no new oracle, token, memory, or speed claim. No GPU is available.
    Link to the input guide. Do not imply new multimodal HTTP architecture support.
 2. Rewrite the guide's per-prompt limits section as user instructions. Include
    the dense loader, keep the dots3-note exception, and explain both zero-limit
-   spellings. Keep C API request limitations and projector validation caveats.
+   spellings. Verify and document current C API media routing. Keep projector validation caveats.
 3. Replace the long server flag cell with its behavior and a guide link.
 4. Link benchmark history to `docs/benchmarks/memory.md`, which already retains
    the historical measurements. Do not duplicate or change those measurements.
@@ -65,6 +65,21 @@ GPU, new benchmark, remote compute, or upstream checkout is required. An existin
 PR covers ABI documentation, and another covers Qwen3.8 quantized arms. Do not
 duplicate those changes. Stop on an unresolved source contradiction that changes
 the intended scope. The user authorized a fork PR, not a merge to upstream.
+
+## Source correction before the C API documentation edit
+
+Production `src/capi/vllm_c.cpp:480` installs the multimodal chat handler.
+`vllm_chat` reaches that handler at `:1343`, contrary to the guide's old
+no-media claim. `include/vllm.h:205` describes the current behavior, although
+its field comment at `:702` still describes the old behavior. The existing
+case at `tests/capi/test_capi.cpp:1518` checks named refusal for an unregistered
+multimodal architecture. Update the guide's opening and limits subsection to
+reflect current routing and refusals. No new ABI behavior or test is introduced.
+`src/vllm/entrypoints/model_loader.cpp:3143` routes the DeepSeek-V4 projector
+separately. Qualify the guide's GGUF request limitation to the Qwen3-VL
+projector arm, rather than all GGUF models. The opening table lists the
+examples covered by this guide, not every registered multimodal architecture.
+The operator approved these source-backed scope corrections on 4 October 2026.
 
 ## Now
 
