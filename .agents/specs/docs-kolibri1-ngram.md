@@ -55,3 +55,5 @@ The local issue and this spec carry the documentation record.
 4. Open one upstream PR from the existing fork, without merging.
 
 ## Owed
+
+- ISSUE-LOCAL-01M4W5TSTGNQY9WVBDVHK1PXQF: publish the source-checked guide.
